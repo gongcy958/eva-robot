@@ -37,7 +37,12 @@ def main() -> None:
         tts=tts,
         record_seconds=config.record_seconds,
     )
-    runtime = VoiceRuntime(run_voice_turn=use_case)
+    runtime = VoiceRuntime(
+        run_voice_turn=use_case,
+        wake_word=config.wake_word,
+        sleep_command=config.sleep_command,
+        wake_timeout_seconds=config.wake_timeout_seconds,
+    )
     runtime.run()
 
 

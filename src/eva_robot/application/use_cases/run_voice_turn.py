@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 import numpy as np
 
 from ..services.ports import (
@@ -29,13 +31,14 @@ class RunVoiceTurnUseCase:
         self._tts = tts
         self._record_seconds = record_seconds
 
-    def run_once(self) -> None:
+    def listen_once(self) -> str | None:
         print(f"\nRecording {self._record_seconds} seconds. Speak clearly...")
         try:
             audio = self._recorder.record()
         except Exception as exc:
             print(f"[Audio] recording error: {exc}")
-            return
+            time.sleep(1)
+            return None
 
         print("Raw audio shape:", getattr(audio, "shape", "n/a"), "Max amplitude:", np.max(np.abs(audio)))
 
@@ -43,11 +46,18 @@ class RunVoiceTurnUseCase:
             text = self._asr.transcribe(audio)
         except Exception as exc:
             print(f"[ASR] whisper transcription error: {exc}")
-            return
+            return None
 
         print("Detected text:", repr(text))
         if not text:
             print("Didn't catch anything.")
+            return None
+
+        return text
+
+    def handle_text(self, text: str) -> None:
+        text = text.strip()
+        if not text:
             return
 
         intent = self._router.route(text)
@@ -59,3 +69,9 @@ class RunVoiceTurnUseCase:
             self._tts.speak(response)
         except Exception as exc:
             print(f"[TTS] playback error: {exc}")
+
+    def run_once(self) -> None:
+        text = self.listen_once()
+        if not text:
+            return
+        self.handle_text(text)

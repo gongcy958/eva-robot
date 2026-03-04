@@ -15,3 +15,6 @@ class AppConfig:
     record_seconds: int = int(os.getenv("RECORD_SECONDS", "3"))
     llm_timeout_seconds: int = int(os.getenv("LLM_TIMEOUT_SECONDS", "30"))
     llm_retries: int = int(os.getenv("LLM_RETRIES", "3"))
+    wake_word: str = os.getenv("WAKE_WORD", "伊娃")
+    sleep_command: str = os.getenv("SLEEP_COMMAND", "退下吧")
+    wake_timeout_seconds: int = int(os.getenv("WAKE_TIMEOUT_SECONDS", "60"))

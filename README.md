@@ -105,6 +105,9 @@ export OLLAMA_URL="http://127.0.0.1:11434/api/generate"
 export OLLAMA_MODEL="llama3:latest"
 export SAMPLE_RATE="16000"
 export RECORD_SECONDS="3"
+export WAKE_WORD="伊娃"
+export SLEEP_COMMAND="退下吧"
+export WAKE_TIMEOUT_SECONDS="60"
 ```
 
 Run tests (when tests are added):
