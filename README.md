@@ -37,10 +37,22 @@ Eva Robot is designed as a modular assistant that can grow from a simple chat bo
 eva-robot/
 ├─ README.md
 ├─ requirements.txt
+├─ home_english_robot_stable.py
 ├─ src/
 │  └─ eva_robot/
-│     ├─ __init__.py
-│     └─ main.py
+│     ├─ main.py
+│     ├─ interfaces/
+│     │  ├─ cli/
+│     │  └─ voice/
+│     ├─ application/
+│     │  ├─ services/
+│     │  └─ use_cases/
+│     ├─ domain/
+│     ├─ infrastructure/
+│     │  ├─ asr/
+│     │  ├─ llm/
+│     │  └─ tts/
+│     └─ shared/
 └─ tests/
 ```
 
@@ -71,7 +83,7 @@ python -m src.eva_robot.main
 
 ### English Robot MVP (Root Script)
 
-This repository also includes a voice-based English robot MVP script:
+This repository also includes a compatibility entry script:
 
 ```bash
 python home_english_robot_stable.py
