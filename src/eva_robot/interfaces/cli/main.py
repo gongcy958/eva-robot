@@ -14,11 +14,19 @@ def main() -> None:
     recorder = MicrophoneRecorder(
         sample_rate=config.sample_rate,
         record_seconds=config.record_seconds,
+        min_record_seconds=config.min_record_seconds,
+        max_record_seconds=config.max_record_seconds,
+        silence_duration_seconds=config.silence_duration_seconds,
+        silence_threshold=config.silence_threshold,
+        no_speech_timeout_seconds=config.no_speech_timeout_seconds,
     )
     asr = FasterWhisperAsr(
         model_path=config.whisper_model_path,
         device=config.whisper_device,
         compute_type=config.whisper_compute_type,
+        vad_filter=config.asr_vad_filter,
+        beam_size=config.asr_beam_size,
+        temperature=config.asr_temperature,
     )
     router = IntentRouter()
     llm = OllamaLlmClient(
@@ -35,7 +43,7 @@ def main() -> None:
         router=router,
         llm=llm,
         tts=tts,
-        record_seconds=config.record_seconds,
+        record_seconds=int(config.max_record_seconds),
     )
     runtime = VoiceRuntime(
         run_voice_turn=use_case,

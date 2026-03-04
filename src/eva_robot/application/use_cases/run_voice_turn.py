@@ -32,7 +32,10 @@ class RunVoiceTurnUseCase:
         self._record_seconds = record_seconds
 
     def listen_once(self) -> str | None:
-        print(f"\nRecording {self._record_seconds} seconds. Speak clearly...")
+        print(
+            f"\nListening... (max {self._record_seconds}s, "
+            "auto-stop after you stop speaking)"
+        )
         try:
             audio = self._recorder.record()
         except Exception as exc:
