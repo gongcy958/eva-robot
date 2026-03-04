@@ -69,6 +69,32 @@ Run the application:
 python -m src.eva_robot.main
 ```
 
+### English Robot MVP (Root Script)
+
+This repository also includes a voice-based English robot MVP script:
+
+```bash
+python home_english_robot_stable.py
+```
+
+Prerequisites:
+
+- Ollama is running locally and accessible at `http://127.0.0.1:11434`
+- Whisper model files are available locally (default path is shown below)
+- Microphone permission is granted to your terminal/IDE
+
+Environment variables (optional):
+
+```bash
+export WHISPER_MODEL_PATH="/Users/mine/.cache/faster-whisper/small"
+export WHISPER_DEVICE="cpu"
+export WHISPER_COMPUTE_TYPE="int8"
+export OLLAMA_URL="http://127.0.0.1:11434/api/generate"
+export OLLAMA_MODEL="llama3:latest"
+export SAMPLE_RATE="16000"
+export RECORD_SECONDS="3"
+```
+
 Run tests (when tests are added):
 
 ```bash
