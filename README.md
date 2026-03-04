@@ -1,29 +1,121 @@
-# eva-robot
+# Eva Robot
 
-Eva Robot is an English-first intelligent robot designed for natural conversations, smart assistance, and everyday productivity.
+[![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
+[![Status](https://img.shields.io/badge/Status-Active-success.svg)](#roadmap)
+
+An extensible Python robot assistant focused on conversation, command execution, and automation workflows.
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Features](#features)
+- [Project Structure](#project-structure)
+- [Getting Started](#getting-started)
+- [Usage](#usage)
+- [Configuration](#configuration)
+- [Roadmap](#roadmap)
+- [Contributing](#contributing)
+- [Changelog](#changelog)
+- [Contact](#contact)
+- [License](#license)
+
+## Overview
+
+Eva Robot is designed as a modular assistant that can grow from a simple chat bot into a task-driven automation agent.
 
 ## Features
 
-- English-focused chat and understanding
-- Smart task assistance
-- Fast and simple interaction
-- Extensible architecture for future upgrades
+- Conversation and command handling
+- Task routing and execution pipeline
+- Modular architecture for future plugins
+- Logging and runtime observability (planned)
 
-## Quick Start
+## Project Structure
+
+```text
+eva-robot/
+├─ README.md
+├─ requirements.txt
+├─ src/
+│  └─ eva_robot/
+│     ├─ __init__.py
+│     └─ main.py
+└─ tests/
+```
+
+## Getting Started
+
+### Prerequisites
+
+- Python 3.10 or later
+- `pip`
+
+### Installation
 
 ```bash
-git clone https://github.com/gongcy958/eva-robot.git
+git clone https://github.com/<your-username>/eva-robot.git
 cd eva-robot
 python3 -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+```
+
+## Usage
+
+Run the application:
+
+```bash
 python -m src.eva_robot.main
 ```
 
-## Vision
+Run tests (when tests are added):
 
-Build a practical and reliable English smart robot that helps users communicate, organize tasks, and automate daily workflows.
+```bash
+pytest
+```
+
+## Configuration
+
+A future `.env`-based setup is recommended for runtime configuration, such as:
+
+- API keys
+- Runtime mode (`dev`, `prod`)
+- Logging level
+
+## Roadmap
+
+- [ ] Deliver minimal runnable MVP
+- [ ] Add command routing with handler registry
+- [ ] Add scheduled task support
+- [ ] Add plugin system and external integrations
+- [ ] Improve observability and monitoring
+
+## Contributing
+
+Contributions are welcome.
+
+1. Fork the repository.
+2. Create a branch: `git checkout -b feature/your-feature`.
+3. Commit your changes: `git commit -m "feat: add your feature"`.
+4. Push to your fork and open a Pull Request.
+
+Please keep changes focused, tested, and documented.
+
+## Changelog
+
+All notable changes will be documented in this section.
+
+### [0.1.0] - 2026-03-04
+
+- Initialized project structure
+- Added foundational README
+
+## Contact
+
+Project Maintainer: `<your-name>`  
+GitHub: [gongcy](https://github.com/gongcy958)
 
 ## License
 
-MIT
+MIT License. See [LICENSE](./LICENSE) for details.
