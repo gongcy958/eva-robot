@@ -54,7 +54,7 @@ eva-robot/
 ### Installation
 
 ```bash
-git clone https://github.com/<your-username>/eva-robot.git
+git clone https://github.com/gongcy958/eva-robot.git
 cd eva-robot
 python3 -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
