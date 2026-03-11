@@ -145,19 +145,37 @@ class RunVoiceTurnUseCase:
             "再说一遍",
         }
 
+    def _is_example_followup_request(self, text: str) -> bool:
+        return self._normalized_followup_text(text) in {
+            "another example",
+            "one more example",
+            "more examples",
+            "give me an example",
+            "再来一个例句",
+            "举个例子",
+        }
+
     def _build_effective_user_input(self, intent: Intent, text: str) -> str:
-        if intent != "repeat_slowly" or not self._conversation_memory:
+        if not self._conversation_memory:
             return text
 
-        if not self._is_generic_repeat_request(text):
-            return text
+        if intent == "repeat_slowly" and self._is_generic_repeat_request(text):
+            last_turn = self._conversation_memory[-1]
+            return (
+                "Repeat your last reply more slowly and clearly. "
+                "Keep the meaning simple and easy to follow.\n"
+                f"Last reply:\n{last_turn.assistant}"
+            )
 
-        last_turn = self._conversation_memory[-1]
-        return (
-            "Repeat your last reply more slowly and clearly. "
-            "Keep the meaning simple and easy to follow.\n"
-            f"Last reply:\n{last_turn.assistant}"
-        )
+        if self._is_example_followup_request(text):
+            last_turn = self._conversation_memory[-1]
+            return (
+                "Give one more simple learning example based on the previous exchange.\n"
+                f"Previous user request:\n{last_turn.user}\n"
+                f"Previous assistant reply:\n{last_turn.assistant}"
+            )
+
+        return text
 
     def speak_feedback(self, text: str) -> None:
         feedback = text.strip()
