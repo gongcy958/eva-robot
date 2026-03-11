@@ -36,6 +36,7 @@ Eva Robot is designed as a modular assistant that can grow from a simple chat bo
 ```text
 eva-robot/
 ├─ README.md
+├─ LICENSE
 ├─ requirements.txt
 ├─ home_english_robot_stable.py
 ├─ src/
@@ -53,7 +54,6 @@ eva-robot/
 │     │  ├─ llm/
 │     │  └─ tts/
 │     └─ shared/
-└─ tests/
 ```
 
 ## Getting Started
@@ -121,7 +121,8 @@ export WAKE_TIMEOUT_SECONDS="60"
 
 If your wake or sleep phrases include Chinese, keep `ASR_LANGUAGE="auto"` so Whisper can auto-detect instead of forcing English-only transcription.
 
-Run tests (when tests are added):
+Automated tests are planned but are not included in the repository yet. When a
+test suite is added, it can be run with:
 
 ```bash
 pytest
