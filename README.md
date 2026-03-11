@@ -134,6 +134,7 @@ export ASR_BEAM_SIZE="5"
 export ASR_TEMPERATURE="0.0"
 export CONVERSATION_MEMORY_TURNS="3"
 export LOG_LEVEL="INFO"
+export LOG_FILE_PATH="logs/eva_robot.jsonl"
 export SKIP_STARTUP_CHECKS="false"
 export WAKE_WORD="伊娃"
 export WAKE_ACK_MESSAGE="我在。"
@@ -173,6 +174,9 @@ Wake interaction is smoother now:
 The runtime keeps a short in-memory conversation history and emits structured
 JSON logs to stdout for audio, ASR, intent routing, LLM, TTS, and wake/sleep
 events.
+
+The same JSON logs can also be written to a local file such as
+`logs/eva_robot.jsonl` for later debugging and replay.
 
 If ASR confidence looks too low, Eva now asks you to repeat instead of trying
 to answer based on a shaky transcription.

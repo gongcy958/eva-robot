@@ -4,18 +4,27 @@ import json
 import logging
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 
 LOGGER_NAME = "eva_robot"
 
 
-def configure_logging(level: str = "INFO") -> None:
+def configure_logging(level: str = "INFO", log_file_path: str | None = None) -> None:
     normalized_level = getattr(logging, level.upper(), logging.INFO)
+    handlers: list[logging.Handler] = [
+        logging.StreamHandler(sys.stdout),
+    ]
+    if log_file_path:
+        path = Path(log_file_path).expanduser()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        handlers.append(logging.FileHandler(path, encoding="utf-8"))
+
     logging.basicConfig(
         level=normalized_level,
         format="%(message)s",
-        stream=sys.stdout,
+        handlers=handlers,
         force=True,
     )
 

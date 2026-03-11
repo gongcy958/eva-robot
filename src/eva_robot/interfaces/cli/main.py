@@ -61,7 +61,7 @@ def _build_llm_client(config: AppConfig, logger: StructuredLogger):
 
 def main() -> None:
     config = AppConfig()
-    configure_logging(config.log_level)
+    configure_logging(config.log_level, config.log_file_path)
     logger = StructuredLogger()
     StartupPreflight(config, logger).run()
 

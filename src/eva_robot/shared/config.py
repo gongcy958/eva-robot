@@ -104,6 +104,7 @@ class AppConfig:
     llm_preflight_probe: bool = _env_bool("LLM_PREFLIGHT_PROBE", True)
     conversation_memory_turns: int = int(os.getenv("CONVERSATION_MEMORY_TURNS", "3"))
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
+    log_file_path: str | None = _env_optional_str("LOG_FILE_PATH", "logs/eva_robot.jsonl")
     skip_startup_checks: bool = _env_bool("SKIP_STARTUP_CHECKS", False)
     wake_word: str = os.getenv("WAKE_WORD", "伊娃")
     wake_ack_message: str = os.getenv("WAKE_ACK_MESSAGE", "我在。")
