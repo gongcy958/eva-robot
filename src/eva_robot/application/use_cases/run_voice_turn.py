@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
+import re
 import time
 
 import numpy as np
@@ -21,6 +22,7 @@ from ...shared.observability import StructuredLogger
 class ConversationTurn:
     user: str
     assistant: str
+    intent: Intent
 
 
 FALLBACK_RESPONSES: dict[Intent, str] = {
@@ -78,12 +80,52 @@ class RunVoiceTurnUseCase:
             "Sorry, I had trouble responding just now. Please try again.",
         )
 
-    def _remember_turn(self, user_text: str, assistant_text: str) -> None:
+    def _remember_turn(self, user_text: str, assistant_text: str, intent: Intent) -> None:
         if self._conversation_memory.maxlen == 0:
             return
         self._conversation_memory.append(
-            ConversationTurn(user=user_text, assistant=assistant_text)
+            ConversationTurn(user=user_text, assistant=assistant_text, intent=intent)
         )
+
+    def _resolve_intent(self, text: str) -> Intent:
+        intent = self._router.route(text)
+        if not self._conversation_memory:
+            return intent
+
+        normalized = text.lower().strip()
+        normalized = re.sub(r"[!?.,，。？！;；:：]+$", "", normalized)
+        last_intent = self._conversation_memory[-1].intent
+
+        if normalized in {
+            "again",
+            "say again",
+            "repeat",
+            "one more time",
+            "speak slowly",
+            "slowly please",
+            "again please",
+            "慢一点",
+            "再说一遍",
+        }:
+            return "repeat_slowly"
+
+        if normalized in {
+            "another example",
+            "one more example",
+            "more examples",
+            "give me an example",
+            "再来一个例句",
+            "举个例子",
+        } and last_intent in {
+            "translate_text",
+            "word_explain",
+            "sentence_fix",
+            "grammar_question",
+            "ask_in_english",
+        }:
+            return last_intent
+
+        return intent
 
     def speak_feedback(self, text: str) -> None:
         feedback = text.strip()
@@ -197,7 +239,7 @@ class RunVoiceTurnUseCase:
         if not text:
             return
 
-        intent = self._router.route(text)
+        intent = self._resolve_intent(text)
         self._logger.info(
             "intent.routed",
             intent=intent,
@@ -223,7 +265,7 @@ class RunVoiceTurnUseCase:
             response_length=len(response),
         )
         print(f"[{intent}] AI:", response)
-        self._remember_turn(text, response)
+        self._remember_turn(text, response, intent)
 
         tts_started_at = time.perf_counter()
         try:
