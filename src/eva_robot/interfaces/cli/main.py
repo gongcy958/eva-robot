@@ -8,6 +8,7 @@ from ..voice.microphone import MicrophoneRecorder
 from ..voice.runtime import VoiceRuntime
 from ...shared.config import AppConfig
 from ...shared.observability import StructuredLogger, configure_logging
+from ...shared.preflight import StartupPreflight
 
 
 def _build_llm_client(config: AppConfig, logger: StructuredLogger):
@@ -62,6 +63,7 @@ def main() -> None:
     config = AppConfig()
     configure_logging(config.log_level)
     logger = StructuredLogger()
+    StartupPreflight(config, logger).run()
 
     recorder = MicrophoneRecorder(
         sample_rate=config.sample_rate,

@@ -111,6 +111,7 @@ export LLM_DEFAULT_MODEL="gpt-5.1"
 export LLM_HIGH_QUALITY_MODEL="gpt-5.2"
 export LLM_BASE_URL="https://gmncode.cn"
 export LLM_API_KEY="your_api_key_here"
+export LLM_PREFLIGHT_PROBE="true"
 export WHISPER_MODEL_PATH="/Users/mine/.cache/faster-whisper/small"
 export WHISPER_DEVICE="cpu"
 export WHISPER_COMPUTE_TYPE="int8"
@@ -130,6 +131,7 @@ export ASR_BEAM_SIZE="5"
 export ASR_TEMPERATURE="0.0"
 export CONVERSATION_MEMORY_TURNS="3"
 export LOG_LEVEL="INFO"
+export SKIP_STARTUP_CHECKS="false"
 export WAKE_WORD="伊娃"
 export SLEEP_COMMAND="退下吧"
 export WAKE_TIMEOUT_SECONDS="60"
@@ -148,6 +150,13 @@ One-command mode switching:
 ./scripts/use_default_mode.sh
 ./scripts/use_high_quality_mode.sh
 ```
+
+Startup preflight now runs automatically before the voice loop. It checks:
+
+- Whisper model path availability
+- Active LLM backend connectivity
+- OpenAI-compatible API key and lightweight model probe
+- Ollama endpoint reachability and selected local model
 
 The runtime keeps a short in-memory conversation history and emits structured
 JSON logs to stdout for audio, ASR, intent routing, LLM, TTS, and wake/sleep
