@@ -29,13 +29,14 @@ Eva Robot is designed as a modular assistant that can grow from a simple chat bo
 - Conversation and command handling
 - Task routing and execution pipeline
 - Modular architecture for future plugins
-- Logging and runtime observability (planned)
+- Structured logging and runtime observability
 
 ## Project Structure
 
 ```text
 eva-robot/
 ├─ README.md
+├─ LICENSE
 ├─ requirements.txt
 ├─ home_english_robot_stable.py
 ├─ src/
@@ -53,7 +54,6 @@ eva-robot/
 │     │  ├─ llm/
 │     │  └─ tts/
 │     └─ shared/
-└─ tests/
 ```
 
 ## Getting Started
@@ -95,19 +95,80 @@ Prerequisites:
 - Whisper model files are available locally (default path is shown below)
 - Microphone permission is granted to your terminal/IDE
 
-Environment variables (optional):
+Configuration is loaded from environment variables and from local `.env` / `.env.local`
+files if present. Copy `.env.example` to `.env.local` for a safe local setup:
 
 ```bash
+cp .env.example .env.local
+```
+
+Key variables:
+
+```bash
+export LLM_PROVIDER="openai_compatible"
+export LLM_PROFILE="default"  # or high_quality
+export LLM_DEFAULT_MODEL="gpt-5.1"
+export LLM_HIGH_QUALITY_MODEL="gpt-5.2"
+export LLM_BASE_URL="https://gmncode.cn"
+export LLM_API_KEY="your_api_key_here"
+export LLM_PREFLIGHT_PROBE="true"
 export WHISPER_MODEL_PATH="/Users/mine/.cache/faster-whisper/small"
 export WHISPER_DEVICE="cpu"
 export WHISPER_COMPUTE_TYPE="int8"
+export ASR_LANGUAGE="auto"
+export ASR_RETRIES="2"
 export OLLAMA_URL="http://127.0.0.1:11434/api/generate"
-export OLLAMA_MODEL="llama3:latest"
+export OLLAMA_MODEL="qwen2.5:7b-instruct"
 export SAMPLE_RATE="16000"
 export RECORD_SECONDS="3"
+export MIN_RECORD_SECONDS="1.0"
+export MAX_RECORD_SECONDS="12.0"
+export SILENCE_DURATION_SECONDS="0.8"
+export SILENCE_THRESHOLD="0.01"
+export NO_SPEECH_TIMEOUT_SECONDS="2.0"
+export ASR_VAD_FILTER="true"
+export ASR_BEAM_SIZE="5"
+export ASR_TEMPERATURE="0.0"
+export CONVERSATION_MEMORY_TURNS="3"
+export LOG_LEVEL="INFO"
+export SKIP_STARTUP_CHECKS="false"
+export WAKE_WORD="伊娃"
+export SLEEP_COMMAND="退下吧"
+export WAKE_TIMEOUT_SECONDS="60"
 ```
 
-Run tests (when tests are added):
+If your wake or sleep phrases include Chinese, keep `ASR_LANGUAGE="auto"` so Whisper can auto-detect instead of forcing English-only transcription.
+
+Provider selection:
+
+- `LLM_PROVIDER=openai_compatible`: uses the remote compatible API and defaults to `gpt-5.1`
+- `LLM_PROVIDER=ollama`: uses the local Ollama model in `OLLAMA_MODEL`
+
+One-command mode switching:
+
+```bash
+./scripts/use_default_mode.sh
+./scripts/use_high_quality_mode.sh
+```
+
+Startup preflight now runs automatically before the voice loop. It checks:
+
+- Whisper model path availability
+- Active LLM backend connectivity
+- OpenAI-compatible API key and lightweight model probe
+- Ollama endpoint reachability and selected local model
+
+Wake interaction is smoother now:
+
+- You can say wake word and command in one sentence, for example `伊娃，帮我翻译 hello`
+- After each reply, Eva stays awake and keeps listening for follow-up questions until timeout
+
+The runtime keeps a short in-memory conversation history and emits structured
+JSON logs to stdout for audio, ASR, intent routing, LLM, TTS, and wake/sleep
+events.
+
+Automated tests are planned but are not included in the repository yet. When a
+test suite is added, it can be run with:
 
 ```bash
 pytest
