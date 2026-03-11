@@ -6,10 +6,13 @@ from ...infrastructure.tts.system_tts import SystemTts
 from ..voice.microphone import MicrophoneRecorder
 from ..voice.runtime import VoiceRuntime
 from ...shared.config import AppConfig
+from ...shared.observability import StructuredLogger, configure_logging
 
 
 def main() -> None:
     config = AppConfig()
+    configure_logging(config.log_level)
+    logger = StructuredLogger()
 
     recorder = MicrophoneRecorder(
         sample_rate=config.sample_rate,
@@ -35,6 +38,7 @@ def main() -> None:
         model=config.ollama_model,
         timeout_seconds=config.llm_timeout_seconds,
         retries=config.llm_retries,
+        logger=logger,
     )
     tts = SystemTts()
 
@@ -45,12 +49,16 @@ def main() -> None:
         llm=llm,
         tts=tts,
         record_seconds=int(config.max_record_seconds),
+        conversation_memory_turns=config.conversation_memory_turns,
+        asr_retries=config.asr_retries,
+        logger=logger,
     )
     runtime = VoiceRuntime(
         run_voice_turn=use_case,
         wake_word=config.wake_word,
         sleep_command=config.sleep_command,
         wake_timeout_seconds=config.wake_timeout_seconds,
+        logger=logger,
     )
     runtime.run()
 

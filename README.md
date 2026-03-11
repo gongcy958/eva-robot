@@ -102,6 +102,7 @@ export WHISPER_MODEL_PATH="/Users/mine/.cache/faster-whisper/small"
 export WHISPER_DEVICE="cpu"
 export WHISPER_COMPUTE_TYPE="int8"
 export ASR_LANGUAGE="auto"
+export ASR_RETRIES="2"
 export OLLAMA_URL="http://127.0.0.1:11434/api/generate"
 export OLLAMA_MODEL="llama3:latest"
 export SAMPLE_RATE="16000"
@@ -114,12 +115,18 @@ export NO_SPEECH_TIMEOUT_SECONDS="2.0"
 export ASR_VAD_FILTER="true"
 export ASR_BEAM_SIZE="5"
 export ASR_TEMPERATURE="0.0"
+export CONVERSATION_MEMORY_TURNS="3"
+export LOG_LEVEL="INFO"
 export WAKE_WORD="伊娃"
 export SLEEP_COMMAND="退下吧"
 export WAKE_TIMEOUT_SECONDS="60"
 ```
 
 If your wake or sleep phrases include Chinese, keep `ASR_LANGUAGE="auto"` so Whisper can auto-detect instead of forcing English-only transcription.
+
+The runtime now keeps a short in-memory conversation history and emits
+structured JSON logs to stdout for audio, ASR, intent routing, LLM, TTS, and
+wake/sleep events.
 
 Automated tests are planned but are not included in the repository yet. When a
 test suite is added, it can be run with:
