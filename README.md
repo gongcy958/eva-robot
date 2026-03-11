@@ -196,6 +196,13 @@ test suite is added, it can be run with:
 pytest
 ```
 
+For a lightweight local regression check of routing, learning mode, and
+follow-up behavior, run:
+
+```bash
+python3 scripts/smoke_regression.py
+```
+
 ## Configuration
 
 A future `.env`-based setup is recommended for runtime configuration, such as:
