@@ -29,7 +29,7 @@ Eva Robot is designed as a modular assistant that can grow from a simple chat bo
 - Conversation and command handling
 - Task routing and execution pipeline
 - Modular architecture for future plugins
-- Logging and runtime observability (planned)
+- Structured logging and runtime observability
 
 ## Project Structure
 
@@ -95,16 +95,29 @@ Prerequisites:
 - Whisper model files are available locally (default path is shown below)
 - Microphone permission is granted to your terminal/IDE
 
-Environment variables (optional):
+Configuration is loaded from environment variables and from local `.env` / `.env.local`
+files if present. Copy `.env.example` to `.env.local` for a safe local setup:
 
 ```bash
+cp .env.example .env.local
+```
+
+Key variables:
+
+```bash
+export LLM_PROVIDER="openai_compatible"
+export LLM_PROFILE="default"  # or high_quality
+export LLM_DEFAULT_MODEL="gpt-5.1"
+export LLM_HIGH_QUALITY_MODEL="gpt-5.2"
+export LLM_BASE_URL="https://gmncode.cn"
+export LLM_API_KEY="your_api_key_here"
 export WHISPER_MODEL_PATH="/Users/mine/.cache/faster-whisper/small"
 export WHISPER_DEVICE="cpu"
 export WHISPER_COMPUTE_TYPE="int8"
 export ASR_LANGUAGE="auto"
 export ASR_RETRIES="2"
 export OLLAMA_URL="http://127.0.0.1:11434/api/generate"
-export OLLAMA_MODEL="llama3:latest"
+export OLLAMA_MODEL="qwen2.5:7b-instruct"
 export SAMPLE_RATE="16000"
 export RECORD_SECONDS="3"
 export MIN_RECORD_SECONDS="1.0"
@@ -124,9 +137,21 @@ export WAKE_TIMEOUT_SECONDS="60"
 
 If your wake or sleep phrases include Chinese, keep `ASR_LANGUAGE="auto"` so Whisper can auto-detect instead of forcing English-only transcription.
 
-The runtime now keeps a short in-memory conversation history and emits
-structured JSON logs to stdout for audio, ASR, intent routing, LLM, TTS, and
-wake/sleep events.
+Provider selection:
+
+- `LLM_PROVIDER=openai_compatible`: uses the remote compatible API and defaults to `gpt-5.1`
+- `LLM_PROVIDER=ollama`: uses the local Ollama model in `OLLAMA_MODEL`
+
+One-command mode switching:
+
+```bash
+./scripts/use_default_mode.sh
+./scripts/use_high_quality_mode.sh
+```
+
+The runtime keeps a short in-memory conversation history and emits structured
+JSON logs to stdout for audio, ASR, intent routing, LLM, TTS, and wake/sleep
+events.
 
 Automated tests are planned but are not included in the repository yet. When a
 test suite is added, it can be run with:

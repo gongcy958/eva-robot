@@ -43,6 +43,8 @@ class OllamaLlmClient:
 
                 self._logger.warning(
                     "llm.empty_response",
+                    provider="ollama",
+                    model=self._model,
                     attempt=i + 1,
                     duration_ms=duration_ms,
                 )
@@ -50,6 +52,8 @@ class OllamaLlmClient:
                 duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
                 self._logger.warning(
                     "llm.request_failed",
+                    provider="ollama",
+                    model=self._model,
                     attempt=i + 1,
                     retries=self._retries,
                     duration_ms=duration_ms,

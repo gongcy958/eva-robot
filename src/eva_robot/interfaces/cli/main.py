@@ -1,12 +1,61 @@
 from ...application.use_cases.run_voice_turn import RunVoiceTurnUseCase
 from ...domain.intents import IntentRouter
 from ...infrastructure.asr.faster_whisper_asr import FasterWhisperAsr
+from ...infrastructure.llm.openai_compatible_client import OpenAiCompatibleLlmClient
 from ...infrastructure.llm.ollama_client import OllamaLlmClient
 from ...infrastructure.tts.system_tts import SystemTts
 from ..voice.microphone import MicrophoneRecorder
 from ..voice.runtime import VoiceRuntime
 from ...shared.config import AppConfig
 from ...shared.observability import StructuredLogger, configure_logging
+
+
+def _build_llm_client(config: AppConfig, logger: StructuredLogger):
+    provider = config.resolved_llm_provider()
+    model = config.resolved_llm_model()
+
+    if provider == "openai_compatible":
+        if not config.llm_api_key:
+            raise ValueError(
+                "LLM_API_KEY is required when LLM_PROVIDER=openai_compatible."
+            )
+
+        logger.info(
+            "llm.provider_selected",
+            provider=provider,
+            model=model,
+            profile=config.llm_profile,
+            base_url=config.llm_base_url,
+        )
+        return OpenAiCompatibleLlmClient(
+            base_url=config.llm_base_url,
+            api_key=config.llm_api_key,
+            model=model,
+            timeout_seconds=config.llm_timeout_seconds,
+            retries=config.llm_retries,
+            logger=logger,
+        )
+
+    if provider == "ollama":
+        logger.info(
+            "llm.provider_selected",
+            provider=provider,
+            model=model,
+            profile=config.llm_profile,
+            base_url=config.ollama_url,
+        )
+        return OllamaLlmClient(
+            url=config.ollama_url,
+            model=model,
+            timeout_seconds=config.llm_timeout_seconds,
+            retries=config.llm_retries,
+            logger=logger,
+        )
+
+    raise ValueError(
+        f"Unsupported LLM_PROVIDER={config.llm_provider!r}. "
+        "Use 'openai_compatible' or 'ollama'."
+    )
 
 
 def main() -> None:
@@ -33,13 +82,7 @@ def main() -> None:
         temperature=config.asr_temperature,
     )
     router = IntentRouter()
-    llm = OllamaLlmClient(
-        url=config.ollama_url,
-        model=config.ollama_model,
-        timeout_seconds=config.llm_timeout_seconds,
-        retries=config.llm_retries,
-        logger=logger,
-    )
+    llm = _build_llm_client(config, logger)
     tts = SystemTts()
 
     use_case = RunVoiceTurnUseCase(
