@@ -4,6 +4,7 @@ from collections import deque
 from dataclasses import dataclass
 import re
 import time
+from typing import Literal
 
 import numpy as np
 
@@ -26,6 +27,26 @@ MODE_DISPLAY_NAMES: dict[LearningMode, str] = {
     "grammar_question": "语法模式",
     "repeat_slowly": "跟读模式",
     "ask_in_english": "口语模式",
+}
+FamilyScene = Literal["breakfast", "family_time", "bedtime"]
+SCENE_DISPLAY_NAMES: dict[FamilyScene, str] = {
+    "breakfast": "早餐英语场景",
+    "family_time": "亲子互动英语场景",
+    "bedtime": "睡前英语场景",
+}
+SCENE_PROMPTS: dict[FamilyScene, str] = {
+    "breakfast": (
+        "Family scene: breakfast time. Prefer short, warm, practical English "
+        "for morning routines, greetings, food, school preparation, and simple encouragement."
+    ),
+    "family_time": (
+        "Family scene: parent-child interaction. Prefer playful, supportive, "
+        "easy English suitable for family conversation, games, chores, and encouragement."
+    ),
+    "bedtime": (
+        "Family scene: bedtime. Prefer calm, gentle, slower English for bedtime "
+        "routines, comfort, reflection, and simple goodnight conversation."
+    ),
 }
 
 
@@ -89,10 +110,13 @@ class RunVoiceTurnUseCase:
         self._asr_max_no_speech_prob = asr_max_no_speech_prob
         self._asr_low_confidence_message = asr_low_confidence_message
         self._active_learning_mode: LearningMode | None = None
+        self._active_family_scene: FamilyScene | None = None
         self._logger = logger or StructuredLogger()
 
     def _build_prompt(self, base_prompt: str) -> str:
         prompt_parts = [base_prompt.strip()]
+        if self._active_family_scene is not None:
+            prompt_parts.append(SCENE_PROMPTS[self._active_family_scene])
         if not self._conversation_memory:
             return "\n\n".join(prompt_parts)
 
@@ -293,6 +317,91 @@ class RunVoiceTurnUseCase:
             action=action,
             previous_mode=previous_mode,
             active_mode=self._active_learning_mode,
+        )
+        self.speak_feedback(message)
+        return True
+
+    def _parse_family_scene_command(self, text: str) -> tuple[str, FamilyScene | None] | None:
+        normalized = self._normalized_followup_text(text)
+
+        if normalized in {
+            "退出场景",
+            "关闭场景",
+            "exit scene",
+            "leave scene",
+            "normal family scene",
+        }:
+            return ("exit", None)
+
+        patterns: list[tuple[FamilyScene, tuple[str, ...]]] = [
+            (
+                "breakfast",
+                (
+                    "进入早餐英语场景",
+                    "切换到早餐英语场景",
+                    "早餐英语场景",
+                    "breakfast scene",
+                ),
+            ),
+            (
+                "family_time",
+                (
+                    "进入亲子互动英语场景",
+                    "切换到亲子互动英语场景",
+                    "亲子互动英语场景",
+                    "家庭互动英语场景",
+                    "family scene",
+                ),
+            ),
+            (
+                "bedtime",
+                (
+                    "进入睡前英语场景",
+                    "切换到睡前英语场景",
+                    "睡前英语场景",
+                    "bedtime scene",
+                ),
+            ),
+        ]
+
+        for scene, scene_patterns in patterns:
+            if normalized in scene_patterns:
+                return ("enter", scene)
+
+        return None
+
+    def _handle_family_scene_command(self, text: str) -> bool:
+        command = self._parse_family_scene_command(text)
+        if command is None:
+            return False
+
+        action, scene = command
+        if action == "exit":
+            previous_scene = self._active_family_scene
+            self._active_family_scene = None
+            message = "好的，已退出家庭英语场景。"
+            if previous_scene is None:
+                message = "当前没有开启家庭英语场景。"
+            print("[Scene]", message)
+            self._logger.info(
+                "family_scene.changed",
+                action=action,
+                previous_scene=previous_scene,
+                active_scene=self._active_family_scene,
+            )
+            self.speak_feedback(message)
+            return True
+
+        previous_scene = self._active_family_scene
+        self._active_family_scene = scene
+        scene_name = SCENE_DISPLAY_NAMES.get(scene or "family_time", "家庭英语场景")
+        message = f"好的，已进入{scene_name}。"
+        print("[Scene]", message)
+        self._logger.info(
+            "family_scene.changed",
+            action=action,
+            previous_scene=previous_scene,
+            active_scene=self._active_family_scene,
         )
         self.speak_feedback(message)
         return True
@@ -574,6 +683,9 @@ class RunVoiceTurnUseCase:
         if not text:
             return
 
+        if self._handle_family_scene_command(text):
+            return
+
         if self._handle_learning_mode_command(text):
             return
 
@@ -584,6 +696,7 @@ class RunVoiceTurnUseCase:
             user_text=text,
             memory_turns=len(self._conversation_memory),
             active_learning_mode=self._active_learning_mode,
+            active_family_scene=self._active_family_scene,
         )
 
         base_prompt = PROMPTS.get(intent, "Greet the user politely.")

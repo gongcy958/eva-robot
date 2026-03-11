@@ -179,6 +179,13 @@ Learning mode is now stateful. You can say commands like:
 - `进入口语模式`
 - `退出模式`
 
+Family English scenes are also stateful. You can say:
+
+- `进入早餐英语场景`
+- `进入亲子互动英语场景`
+- `进入睡前英语场景`
+- `退出场景`
+
 The runtime keeps a short in-memory conversation history and emits structured
 JSON logs to stdout for audio, ASR, intent routing, LLM, TTS, and wake/sleep
 events.
