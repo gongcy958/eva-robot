@@ -171,6 +171,14 @@ Wake interaction is smoother now:
 - Eva now gives a short wake/sleep confirmation, and both messages are configurable
 - Structured tutor replies are normalized before TTS so they sound more natural when spoken
 
+Learning mode is now stateful. You can say commands like:
+
+- `进入翻译模式`
+- `进入纠错模式`
+- `进入语法模式`
+- `进入口语模式`
+- `退出模式`
+
 The runtime keeps a short in-memory conversation history and emits structured
 JSON logs to stdout for audio, ASR, intent routing, LLM, TTS, and wake/sleep
 events.

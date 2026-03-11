@@ -18,6 +18,16 @@ from ..services.ports import (
 from ...domain.intents import Intent, PROMPTS
 from ...shared.observability import StructuredLogger
 
+LearningMode = Intent
+MODE_DISPLAY_NAMES: dict[LearningMode, str] = {
+    "translate_text": "翻译模式",
+    "word_explain": "释义模式",
+    "sentence_fix": "纠错模式",
+    "grammar_question": "语法模式",
+    "repeat_slowly": "跟读模式",
+    "ask_in_english": "口语模式",
+}
+
 
 @dataclass(frozen=True)
 class ConversationTurn:
@@ -78,6 +88,7 @@ class RunVoiceTurnUseCase:
         self._asr_min_avg_logprob = asr_min_avg_logprob
         self._asr_max_no_speech_prob = asr_max_no_speech_prob
         self._asr_low_confidence_message = asr_low_confidence_message
+        self._active_learning_mode: LearningMode | None = None
         self._logger = logger or StructuredLogger()
 
     def _build_prompt(self, base_prompt: str) -> str:
@@ -109,6 +120,8 @@ class RunVoiceTurnUseCase:
     def _resolve_intent(self, text: str) -> Intent:
         intent = self._router.route(text)
         if not self._conversation_memory:
+            if intent == "small_talk" and self._active_learning_mode is not None:
+                return self._active_learning_mode
             return intent
 
         normalized = text.lower().strip()
@@ -150,7 +163,136 @@ class RunVoiceTurnUseCase:
         if self._is_meaning_followup_request(text):
             return "word_explain"
 
+        if intent == "small_talk" and self._active_learning_mode is not None:
+            return self._active_learning_mode
+
         return intent
+
+    def _parse_learning_mode_command(self, text: str) -> tuple[str, LearningMode | None] | None:
+        normalized = self._normalized_followup_text(text)
+
+        if normalized in {
+            "exit mode",
+            "quit mode",
+            "normal mode",
+            "turn off mode",
+            "退出模式",
+            "关闭模式",
+            "普通模式",
+            "自由模式",
+        }:
+            return ("exit", None)
+
+        mode_patterns: list[tuple[LearningMode, tuple[str, ...]]] = [
+            (
+                "translate_text",
+                (
+                    "translation mode",
+                    "translate mode",
+                    "进入翻译模式",
+                    "切换到翻译模式",
+                    "翻译模式",
+                ),
+            ),
+            (
+                "sentence_fix",
+                (
+                    "correction mode",
+                    "fix mode",
+                    "sentence fix mode",
+                    "进入纠错模式",
+                    "切换到纠错模式",
+                    "纠错模式",
+                    "改错模式",
+                ),
+            ),
+            (
+                "word_explain",
+                (
+                    "explain mode",
+                    "word explain mode",
+                    "meaning mode",
+                    "进入释义模式",
+                    "切换到释义模式",
+                    "释义模式",
+                    "单词解释模式",
+                ),
+            ),
+            (
+                "grammar_question",
+                (
+                    "grammar mode",
+                    "进入语法模式",
+                    "切换到语法模式",
+                    "语法模式",
+                ),
+            ),
+            (
+                "repeat_slowly",
+                (
+                    "repeat mode",
+                    "shadowing mode",
+                    "slow speaking mode",
+                    "进入跟读模式",
+                    "切换到跟读模式",
+                    "跟读模式",
+                ),
+            ),
+            (
+                "ask_in_english",
+                (
+                    "speaking mode",
+                    "english chat mode",
+                    "conversation mode",
+                    "进入口语模式",
+                    "切换到口语模式",
+                    "口语模式",
+                    "英语对话模式",
+                ),
+            ),
+        ]
+
+        for mode, patterns in mode_patterns:
+            if normalized in patterns:
+                return ("enter", mode)
+
+        return None
+
+    def _handle_learning_mode_command(self, text: str) -> bool:
+        command = self._parse_learning_mode_command(text)
+        if command is None:
+            return False
+
+        action, mode = command
+        if action == "exit":
+            previous_mode = self._active_learning_mode
+            self._active_learning_mode = None
+            message = "好的，已退出学习模式。"
+            if previous_mode is None:
+                message = "当前没有开启学习模式。"
+            print("[Mode]", message)
+            self._logger.info(
+                "learning_mode.changed",
+                action=action,
+                previous_mode=previous_mode,
+                active_mode=self._active_learning_mode,
+            )
+            self.speak_feedback(message)
+            return True
+
+        previous_mode = self._active_learning_mode
+        self._active_learning_mode = mode
+        mode_name = MODE_DISPLAY_NAMES.get(mode or "small_talk", "学习模式")
+        message = f"好的，已进入{mode_name}。"
+        print("[Mode]", message)
+        self._logger.info(
+            "learning_mode.changed",
+            action=action,
+            previous_mode=previous_mode,
+            active_mode=self._active_learning_mode,
+        )
+        self.speak_feedback(message)
+        return True
 
     @staticmethod
     def _normalized_followup_text(text: str) -> str:
@@ -409,12 +551,16 @@ class RunVoiceTurnUseCase:
         if not text:
             return
 
+        if self._handle_learning_mode_command(text):
+            return
+
         intent = self._resolve_intent(text)
         self._logger.info(
             "intent.routed",
             intent=intent,
             user_text=text,
             memory_turns=len(self._conversation_memory),
+            active_learning_mode=self._active_learning_mode,
         )
 
         base_prompt = PROMPTS.get(intent, "Greet the user politely.")
