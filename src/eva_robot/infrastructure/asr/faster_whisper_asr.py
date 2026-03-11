@@ -9,6 +9,7 @@ class FasterWhisperAsr:
         model_path: str,
         device: str,
         compute_type: str,
+        language: str | None = None,
         vad_filter: bool = True,
         beam_size: int = 5,
         temperature: float = 0.0,
@@ -18,6 +19,7 @@ class FasterWhisperAsr:
             device=device,
             compute_type=compute_type,
         )
+        self._language = language
         self._vad_filter = vad_filter
         self._beam_size = beam_size
         self._temperature = temperature
@@ -25,7 +27,7 @@ class FasterWhisperAsr:
     def transcribe(self, audio: object) -> str:
         segments, _info = self._model.transcribe(
             audio,
-            language="en",
+            language=self._language,
             vad_filter=self._vad_filter,
             beam_size=self._beam_size,
             temperature=self._temperature,

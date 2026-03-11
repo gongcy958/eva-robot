@@ -43,10 +43,30 @@ class RunVoiceTurnUseCase:
             time.sleep(1)
             return None
 
-        print("Raw audio shape:", getattr(audio, "shape", "n/a"), "Max amplitude:", np.max(np.abs(audio)))
+        if audio is None:
+            print("[Audio] no audio captured.")
+            return None
 
         try:
-            text = self._asr.transcribe(audio)
+            audio_array = np.asarray(audio, dtype=np.float32)
+        except (TypeError, ValueError) as exc:
+            print(f"[Audio] unsupported recording format: {exc}")
+            return None
+
+        if audio_array.size == 0:
+            print("[Audio] no audio captured.")
+            return None
+
+        max_amplitude = float(np.max(np.abs(audio_array)))
+        print(
+            "Raw audio shape:",
+            getattr(audio_array, "shape", "n/a"),
+            "Max amplitude:",
+            max_amplitude,
+        )
+
+        try:
+            text = self._asr.transcribe(audio_array)
         except Exception as exc:
             print(f"[ASR] whisper transcription error: {exc}")
             return None

@@ -101,6 +101,7 @@ Environment variables (optional):
 export WHISPER_MODEL_PATH="/Users/mine/.cache/faster-whisper/small"
 export WHISPER_DEVICE="cpu"
 export WHISPER_COMPUTE_TYPE="int8"
+export ASR_LANGUAGE="auto"
 export OLLAMA_URL="http://127.0.0.1:11434/api/generate"
 export OLLAMA_MODEL="llama3:latest"
 export SAMPLE_RATE="16000"
@@ -117,6 +118,8 @@ export WAKE_WORD="伊娃"
 export SLEEP_COMMAND="退下吧"
 export WAKE_TIMEOUT_SECONDS="60"
 ```
+
+If your wake or sleep phrases include Chinese, keep `ASR_LANGUAGE="auto"` so Whisper can auto-detect instead of forcing English-only transcription.
 
 Run tests (when tests are added):
 

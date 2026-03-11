@@ -9,6 +9,18 @@ def _env_bool(name: str, default: bool) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _env_optional_str(name: str, default: str | None = None) -> str | None:
+    value = os.getenv(name)
+    if value is None:
+        return default
+
+    normalized = value.strip()
+    if not normalized or normalized.lower() == "auto":
+        return None
+
+    return normalized
+
+
 @dataclass(frozen=True)
 class AppConfig:
     whisper_model_path: str = os.getenv(
@@ -16,6 +28,7 @@ class AppConfig:
     )
     whisper_device: str = os.getenv("WHISPER_DEVICE", "cpu")
     whisper_compute_type: str = os.getenv("WHISPER_COMPUTE_TYPE", "int8")
+    asr_language: str | None = _env_optional_str("ASR_LANGUAGE")
     ollama_url: str = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/api/generate")
     ollama_model: str = os.getenv("OLLAMA_MODEL", "llama3:latest")
     sample_rate: int = int(os.getenv("SAMPLE_RATE", "16000"))
@@ -30,6 +43,6 @@ class AppConfig:
     asr_temperature: float = float(os.getenv("ASR_TEMPERATURE", "0.0"))
     llm_timeout_seconds: int = int(os.getenv("LLM_TIMEOUT_SECONDS", "30"))
     llm_retries: int = int(os.getenv("LLM_RETRIES", "3"))
-    wake_word: str = os.getenv("WAKE_WORD", "伊娃")
+    wake_word: str = os.getenv("WAKE_WORD", "hello")
     sleep_command: str = os.getenv("SLEEP_COMMAND", "退下吧")
     wake_timeout_seconds: int = int(os.getenv("WAKE_TIMEOUT_SECONDS", "60"))

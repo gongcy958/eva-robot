@@ -24,6 +24,7 @@ def main() -> None:
         model_path=config.whisper_model_path,
         device=config.whisper_device,
         compute_type=config.whisper_compute_type,
+        language=config.asr_language,
         vad_filter=config.asr_vad_filter,
         beam_size=config.asr_beam_size,
         temperature=config.asr_temperature,
