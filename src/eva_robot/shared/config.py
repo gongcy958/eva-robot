@@ -87,6 +87,11 @@ class AppConfig:
     asr_vad_filter: bool = _env_bool("ASR_VAD_FILTER", True)
     asr_beam_size: int = int(os.getenv("ASR_BEAM_SIZE", "5"))
     asr_temperature: float = float(os.getenv("ASR_TEMPERATURE", "0.0"))
+    asr_min_avg_logprob: float = float(os.getenv("ASR_MIN_AVG_LOGPROB", "-1.2"))
+    asr_max_no_speech_prob: float = float(os.getenv("ASR_MAX_NO_SPEECH_PROB", "0.7"))
+    asr_low_confidence_message: str = os.getenv(
+        "ASR_LOW_CONFIDENCE_MESSAGE", "抱歉，我没太听清，请再说一遍。"
+    )
     llm_provider: str = os.getenv("LLM_PROVIDER", "openai_compatible")
     llm_profile: str = os.getenv("LLM_PROFILE", "default")
     llm_base_url: str = os.getenv("LLM_BASE_URL", "https://gmncode.cn")

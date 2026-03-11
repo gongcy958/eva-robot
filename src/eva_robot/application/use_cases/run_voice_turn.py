@@ -8,6 +8,7 @@ import time
 import numpy as np
 
 from ..services.ports import (
+    AsrTranscription,
     AsrService,
     AudioInputService,
     IntentRoutingService,
@@ -47,6 +48,9 @@ class RunVoiceTurnUseCase:
         record_seconds: int,
         conversation_memory_turns: int = 3,
         asr_retries: int = 2,
+        asr_min_avg_logprob: float = -1.2,
+        asr_max_no_speech_prob: float = 0.7,
+        asr_low_confidence_message: str = "Sorry, I didn't catch that clearly. Please say it again.",
         logger: StructuredLogger | None = None,
     ) -> None:
         self._recorder = recorder
@@ -59,6 +63,9 @@ class RunVoiceTurnUseCase:
             maxlen=max(0, conversation_memory_turns)
         )
         self._asr_retries = max(1, asr_retries)
+        self._asr_min_avg_logprob = asr_min_avg_logprob
+        self._asr_max_no_speech_prob = asr_max_no_speech_prob
+        self._asr_low_confidence_message = asr_low_confidence_message
         self._logger = logger or StructuredLogger()
 
     def _build_prompt(self, base_prompt: str) -> str:
@@ -234,20 +241,27 @@ class RunVoiceTurnUseCase:
                 error=str(exc),
             )
 
-    def _transcribe(self, audio: np.ndarray) -> str | None:
+    def _transcribe(self, audio: np.ndarray) -> AsrTranscription | None:
         last_error: Exception | None = None
         for attempt in range(1, self._asr_retries + 1):
             started_at = time.perf_counter()
             try:
-                text = self._asr.transcribe(audio)
+                if hasattr(self._asr, "transcribe_with_details"):
+                    result = self._asr.transcribe_with_details(audio)
+                else:
+                    result = AsrTranscription(text=self._asr.transcribe(audio))
                 duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
                 self._logger.info(
                     "asr.transcribe_completed",
                     attempt=attempt,
                     duration_ms=duration_ms,
-                    transcript=text,
+                    transcript=result.text,
+                    avg_logprob=result.avg_logprob,
+                    no_speech_prob=result.no_speech_prob,
+                    language=result.language,
+                    language_probability=result.language_probability,
                 )
-                return text
+                return result
             except Exception as exc:
                 duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
                 last_error = exc
@@ -265,6 +279,24 @@ class RunVoiceTurnUseCase:
                 f"{self._asr_retries} attempts: {last_error}"
             )
         return None
+
+    def _is_low_confidence_transcription(self, transcription: AsrTranscription) -> bool:
+        if not transcription.text.strip():
+            return False
+
+        avg_logprob = transcription.avg_logprob
+        no_speech_prob = transcription.no_speech_prob
+
+        if avg_logprob is not None and avg_logprob < self._asr_min_avg_logprob:
+            return True
+
+        if (
+            no_speech_prob is not None
+            and no_speech_prob > self._asr_max_no_speech_prob
+        ):
+            return True
+
+        return False
 
     def listen_once(self) -> str | None:
         print(
@@ -312,9 +344,22 @@ class RunVoiceTurnUseCase:
             max_amplitude=round(max_amplitude, 6),
         )
 
-        text = self._transcribe(audio_array)
-        if text is None:
+        transcription = self._transcribe(audio_array)
+        if transcription is None:
             return None
+
+        if self._is_low_confidence_transcription(transcription):
+            self._logger.warning(
+                "asr.low_confidence_detected",
+                transcript=transcription.text,
+                avg_logprob=transcription.avg_logprob,
+                no_speech_prob=transcription.no_speech_prob,
+            )
+            print("[ASR] low confidence detected, asking user to repeat.")
+            self.speak_feedback(self._asr_low_confidence_message)
+            return None
+
+        text = transcription.text
 
         print("Detected text:", repr(text))
         if not text:

@@ -117,6 +117,9 @@ export WHISPER_DEVICE="cpu"
 export WHISPER_COMPUTE_TYPE="int8"
 export ASR_LANGUAGE="auto"
 export ASR_RETRIES="2"
+export ASR_MIN_AVG_LOGPROB="-1.2"
+export ASR_MAX_NO_SPEECH_PROB="0.7"
+export ASR_LOW_CONFIDENCE_MESSAGE="抱歉，我没太听清，请再说一遍。"
 export OLLAMA_URL="http://127.0.0.1:11434/api/generate"
 export OLLAMA_MODEL="qwen2.5:7b-instruct"
 export SAMPLE_RATE="16000"
@@ -169,6 +172,9 @@ Wake interaction is smoother now:
 The runtime keeps a short in-memory conversation history and emits structured
 JSON logs to stdout for audio, ASR, intent routing, LLM, TTS, and wake/sleep
 events.
+
+If ASR confidence looks too low, Eva now asks you to repeat instead of trying
+to answer based on a shaky transcription.
 
 Automated tests are planned but are not included in the repository yet. When a
 test suite is added, it can be run with:

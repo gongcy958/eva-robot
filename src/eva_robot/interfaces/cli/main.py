@@ -96,6 +96,9 @@ def main() -> None:
         record_seconds=int(config.max_record_seconds),
         conversation_memory_turns=config.conversation_memory_turns,
         asr_retries=config.asr_retries,
+        asr_min_avg_logprob=config.asr_min_avg_logprob,
+        asr_max_no_speech_prob=config.asr_max_no_speech_prob,
+        asr_low_confidence_message=config.asr_low_confidence_message,
         logger=logger,
     )
     runtime = VoiceRuntime(
