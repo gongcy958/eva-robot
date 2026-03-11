@@ -38,6 +38,18 @@ FALLBACK_RESPONSES: dict[Intent, str] = {
 
 
 class RunVoiceTurnUseCase:
+    _SPOKEN_LABEL_MAP = {
+        "translation": "Translation",
+        "tip": "Tip",
+        "meaning": "Meaning",
+        "example": "Example",
+        "corrected": "Corrected sentence",
+        "why": "Why",
+        "rule": "Rule",
+        "slow version": "Slow version",
+        "chunks": "Chunks",
+    }
+
     def __init__(
         self,
         recorder: AudioInputService,
@@ -224,6 +236,29 @@ class RunVoiceTurnUseCase:
 
         return text
 
+    def _build_spoken_response(self, response: str) -> str:
+        lines = [line.strip(" -•\t") for line in response.splitlines() if line.strip()]
+        if not lines:
+            return response.strip()
+
+        spoken_parts: list[str] = []
+        for line in lines:
+            if ":" in line:
+                label, value = line.split(":", 1)
+                normalized_label = label.strip().lower()
+                spoken_label = self._SPOKEN_LABEL_MAP.get(normalized_label, label.strip())
+                spoken_value = value.strip()
+                if spoken_value:
+                    spoken_parts.append(f"{spoken_label}. {spoken_value}")
+                else:
+                    spoken_parts.append(spoken_label)
+            else:
+                spoken_parts.append(line)
+
+        spoken = " ".join(spoken_parts)
+        spoken = re.sub(r"\s+", " ", spoken).strip()
+        return spoken
+
     def speak_feedback(self, text: str) -> None:
         feedback = text.strip()
         if not feedback:
@@ -404,14 +439,15 @@ class RunVoiceTurnUseCase:
         print(f"[{intent}] AI:", response)
         self._remember_turn(text, response, intent)
 
+        spoken_response = self._build_spoken_response(response)
         tts_started_at = time.perf_counter()
         try:
-            self._tts.speak(response)
+            self._tts.speak(spoken_response)
             tts_duration_ms = round((time.perf_counter() - tts_started_at) * 1000, 2)
             self._logger.info(
                 "tts.speak_completed",
                 duration_ms=tts_duration_ms,
-                text_length=len(response),
+                text_length=len(spoken_response),
             )
         except Exception as exc:
             print(f"[TTS] playback error: {exc}")

@@ -168,6 +168,7 @@ Wake interaction is smoother now:
 - You can say wake word and command in one sentence, for example `伊娃，帮我翻译 hello`
 - After each reply, Eva stays awake and keeps listening for follow-up questions until timeout
 - Eva now gives a short wake/sleep confirmation, and both messages are configurable
+- Structured tutor replies are normalized before TTS so they sound more natural when spoken
 
 The runtime keeps a short in-memory conversation history and emits structured
 JSON logs to stdout for audio, ASR, intent routing, LLM, TTS, and wake/sleep
