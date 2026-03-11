@@ -163,6 +163,9 @@ class RunVoiceTurnUseCase:
         if self._is_meaning_followup_request(text):
             return "word_explain"
 
+        if self._is_natural_followup_request(text):
+            return last_intent
+
         if intent == "small_talk" and self._active_learning_mode is not None:
             return self._active_learning_mode
 
@@ -340,6 +343,17 @@ class RunVoiceTurnUseCase:
             "什么意思呢",
         }
 
+    def _is_natural_followup_request(self, text: str) -> bool:
+        return self._normalized_followup_text(text) in {
+            "make it more natural",
+            "say it more naturally",
+            "more natural please",
+            "make it more conversational",
+            "更自然一点",
+            "更口语化一点",
+            "更像口语一点",
+        }
+
     def _build_effective_user_input(self, intent: Intent, text: str) -> str:
         if not self._conversation_memory:
             return text
@@ -374,6 +388,15 @@ class RunVoiceTurnUseCase:
                 "Explain the meaning of your previous reply simply. "
                 "If useful, include a short Chinese explanation.\n"
                 f"Previous reply:\n{last_turn.assistant}"
+            )
+
+        if self._is_natural_followup_request(text):
+            last_turn = self._conversation_memory[-1]
+            return (
+                "Rewrite your previous reply in a more natural spoken style. "
+                "Keep it concise and learner-friendly.\n"
+                f"Previous user request:\n{last_turn.user}\n"
+                f"Previous assistant reply:\n{last_turn.assistant}"
             )
 
         return text
