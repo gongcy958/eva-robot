@@ -133,7 +133,9 @@ export CONVERSATION_MEMORY_TURNS="3"
 export LOG_LEVEL="INFO"
 export SKIP_STARTUP_CHECKS="false"
 export WAKE_WORD="伊娃"
+export WAKE_ACK_MESSAGE="我在。"
 export SLEEP_COMMAND="退下吧"
+export SLEEP_ACK_MESSAGE="好的，我先待命。"
 export WAKE_TIMEOUT_SECONDS="60"
 ```
 
@@ -162,6 +164,7 @@ Wake interaction is smoother now:
 
 - You can say wake word and command in one sentence, for example `伊娃，帮我翻译 hello`
 - After each reply, Eva stays awake and keeps listening for follow-up questions until timeout
+- Eva now gives a short wake/sleep confirmation, and both messages are configurable
 
 The runtime keeps a short in-memory conversation history and emits structured
 JSON logs to stdout for audio, ASR, intent routing, LLM, TTS, and wake/sleep

@@ -85,6 +85,23 @@ class RunVoiceTurnUseCase:
             ConversationTurn(user=user_text, assistant=assistant_text)
         )
 
+    def speak_feedback(self, text: str) -> None:
+        feedback = text.strip()
+        if not feedback:
+            return
+
+        try:
+            self._tts.speak(feedback)
+            self._logger.info(
+                "tts.feedback_completed",
+                text_length=len(feedback),
+            )
+        except Exception as exc:
+            self._logger.error(
+                "tts.feedback_failed",
+                error=str(exc),
+            )
+
     def _transcribe(self, audio: np.ndarray) -> str | None:
         last_error: Exception | None = None
         for attempt in range(1, self._asr_retries + 1):
