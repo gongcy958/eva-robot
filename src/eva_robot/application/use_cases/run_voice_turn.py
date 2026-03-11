@@ -127,6 +127,38 @@ class RunVoiceTurnUseCase:
 
         return intent
 
+    @staticmethod
+    def _normalized_followup_text(text: str) -> str:
+        normalized = text.lower().strip()
+        return re.sub(r"[!?.,，。？！;；:：]+$", "", normalized)
+
+    def _is_generic_repeat_request(self, text: str) -> bool:
+        return self._normalized_followup_text(text) in {
+            "again",
+            "say again",
+            "repeat",
+            "one more time",
+            "speak slowly",
+            "slowly please",
+            "again please",
+            "慢一点",
+            "再说一遍",
+        }
+
+    def _build_effective_user_input(self, intent: Intent, text: str) -> str:
+        if intent != "repeat_slowly" or not self._conversation_memory:
+            return text
+
+        if not self._is_generic_repeat_request(text):
+            return text
+
+        last_turn = self._conversation_memory[-1]
+        return (
+            "Repeat your last reply more slowly and clearly. "
+            "Keep the meaning simple and easy to follow.\n"
+            f"Last reply:\n{last_turn.assistant}"
+        )
+
     def speak_feedback(self, text: str) -> None:
         feedback = text.strip()
         if not feedback:
@@ -249,8 +281,9 @@ class RunVoiceTurnUseCase:
 
         base_prompt = PROMPTS.get(intent, "Greet the user politely.")
         prompt = self._build_prompt(base_prompt)
+        effective_user_input = self._build_effective_user_input(intent, text)
         llm_started_at = time.perf_counter()
-        response = self._llm.generate(prompt, text).strip()
+        response = self._llm.generate(prompt, effective_user_input).strip()
         llm_duration_ms = round((time.perf_counter() - llm_started_at) * 1000, 2)
         used_fallback = False
         if not response:
@@ -262,6 +295,7 @@ class RunVoiceTurnUseCase:
             intent=intent,
             duration_ms=llm_duration_ms,
             used_fallback=used_fallback,
+            effective_user_input=effective_user_input,
             response_length=len(response),
         )
         print(f"[{intent}] AI:", response)
