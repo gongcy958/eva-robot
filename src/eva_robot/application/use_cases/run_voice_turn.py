@@ -48,6 +48,18 @@ SCENE_PROMPTS: dict[FamilyScene, str] = {
         "routines, comfort, reflection, and simple goodnight conversation."
     ),
 }
+STATUS_QUERY_PATTERNS = {
+    "当前是什么模式",
+    "现在是什么模式",
+    "当前模式",
+    "现在什么模式",
+    "当前是什么场景",
+    "现在是什么场景",
+    "当前场景",
+    "现在什么场景",
+    "what mode are you in",
+    "what scene are you in",
+}
 
 
 @dataclass(frozen=True)
@@ -406,6 +418,31 @@ class RunVoiceTurnUseCase:
         self.speak_feedback(message)
         return True
 
+    def _handle_status_query(self, text: str) -> bool:
+        normalized = self._normalized_followup_text(text)
+        if normalized not in STATUS_QUERY_PATTERNS:
+            return False
+
+        mode_name = (
+            MODE_DISPLAY_NAMES[self._active_learning_mode]
+            if self._active_learning_mode is not None
+            else "未开启学习模式"
+        )
+        scene_name = (
+            SCENE_DISPLAY_NAMES[self._active_family_scene]
+            if self._active_family_scene is not None
+            else "未开启家庭英语场景"
+        )
+        message = f"当前是{mode_name}，{scene_name}。"
+        print("[Status]", message)
+        self._logger.info(
+            "assistant.status_reported",
+            active_learning_mode=self._active_learning_mode,
+            active_family_scene=self._active_family_scene,
+        )
+        self.speak_feedback(message)
+        return True
+
     @staticmethod
     def _normalized_followup_text(text: str) -> str:
         normalized = text.lower().strip()
@@ -687,6 +724,9 @@ class RunVoiceTurnUseCase:
             return
 
         if self._handle_learning_mode_command(text):
+            return
+
+        if self._handle_status_query(text):
             return
 
         intent = self._resolve_intent(text)

@@ -186,6 +186,11 @@ Family English scenes are also stateful. You can say:
 - `进入睡前英语场景`
 - `退出场景`
 
+You can also ask Eva:
+
+- `当前是什么模式`
+- `当前是什么场景`
+
 The runtime keeps a short in-memory conversation history and emits structured
 JSON logs to stdout for audio, ASR, intent routing, LLM, TTS, and wake/sleep
 events.
