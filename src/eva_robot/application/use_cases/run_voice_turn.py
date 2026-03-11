@@ -25,9 +25,11 @@ class ConversationTurn:
 
 FALLBACK_RESPONSES: dict[Intent, str] = {
     "small_talk": "Sorry, I had trouble replying just now. Could you say that again?",
+    "translate_text": "Sorry, I couldn't translate that just now. Please say the sentence again.",
     "word_explain": "Sorry, I couldn't explain that word just now. Please repeat the word or phrase.",
     "sentence_fix": "Sorry, I couldn't fix that sentence just now. Please say the sentence again.",
     "grammar_question": "Sorry, I couldn't answer that grammar question just now. Please ask me once more.",
+    "repeat_slowly": "Sorry, I couldn't repeat that clearly just now. Please say it once more.",
     "ask_in_english": "Sorry, I couldn't answer that right now. Please try asking again.",
 }
 
