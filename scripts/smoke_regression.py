@@ -92,6 +92,21 @@ def test_stateful_learning_mode() -> None:
     )
 
 
+def test_stateful_family_scene() -> None:
+    use_case, llm, tts = build_use_case()
+    use_case.handle_text("进入早餐英语场景")
+    use_case.handle_text("What should I say before school?")
+    use_case.handle_text("当前是什么模式")
+
+    assert_equal(tts.spoken[0], "好的，已进入早餐英语场景。", "tts scene feedback")
+    assert "Family scene: breakfast time." in llm.calls[0][0], "scene prompt should be injected"
+    assert_equal(
+        tts.spoken[-1],
+        "当前是未开启学习模式，早餐英语场景。",
+        "status query should report current scene",
+    )
+
+
 def test_follow_up_rewrite() -> None:
     use_case, llm, _tts = build_use_case()
     use_case.handle_text("What does vivid mean?")
@@ -108,6 +123,7 @@ def test_follow_up_rewrite() -> None:
 def main() -> int:
     test_intent_router()
     test_stateful_learning_mode()
+    test_stateful_family_scene()
     test_follow_up_rewrite()
     print("smoke_regression: ok")
     return 0
