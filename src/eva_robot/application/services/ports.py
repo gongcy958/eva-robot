@@ -1,10 +1,24 @@
+from dataclasses import dataclass
 from typing import Protocol
 
 from ...domain.intents import Intent
 
 
+@dataclass(frozen=True)
+class AsrTranscription:
+    text: str
+    avg_logprob: float | None = None
+    no_speech_prob: float | None = None
+    language: str | None = None
+    language_probability: float | None = None
+    segment_count: int = 0
+
+
 class AsrService(Protocol):
     def transcribe(self, audio: object) -> str:
+        ...
+
+    def transcribe_with_details(self, audio: object) -> AsrTranscription:
         ...
 
 

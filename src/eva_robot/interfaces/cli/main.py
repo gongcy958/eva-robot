@@ -61,7 +61,7 @@ def _build_llm_client(config: AppConfig, logger: StructuredLogger):
 
 def main() -> None:
     config = AppConfig()
-    configure_logging(config.log_level)
+    configure_logging(config.log_level, config.log_file_path)
     logger = StructuredLogger()
     StartupPreflight(config, logger).run()
 
@@ -96,12 +96,17 @@ def main() -> None:
         record_seconds=int(config.max_record_seconds),
         conversation_memory_turns=config.conversation_memory_turns,
         asr_retries=config.asr_retries,
+        asr_min_avg_logprob=config.asr_min_avg_logprob,
+        asr_max_no_speech_prob=config.asr_max_no_speech_prob,
+        asr_low_confidence_message=config.asr_low_confidence_message,
         logger=logger,
     )
     runtime = VoiceRuntime(
         run_voice_turn=use_case,
         wake_word=config.wake_word,
+        wake_ack_message=config.wake_ack_message,
         sleep_command=config.sleep_command,
+        sleep_ack_message=config.sleep_ack_message,
         wake_timeout_seconds=config.wake_timeout_seconds,
         logger=logger,
     )

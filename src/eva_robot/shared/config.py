@@ -87,6 +87,11 @@ class AppConfig:
     asr_vad_filter: bool = _env_bool("ASR_VAD_FILTER", True)
     asr_beam_size: int = int(os.getenv("ASR_BEAM_SIZE", "5"))
     asr_temperature: float = float(os.getenv("ASR_TEMPERATURE", "0.0"))
+    asr_min_avg_logprob: float = float(os.getenv("ASR_MIN_AVG_LOGPROB", "-1.2"))
+    asr_max_no_speech_prob: float = float(os.getenv("ASR_MAX_NO_SPEECH_PROB", "0.7"))
+    asr_low_confidence_message: str = os.getenv(
+        "ASR_LOW_CONFIDENCE_MESSAGE", "抱歉，我没太听清，请再说一遍。"
+    )
     llm_provider: str = os.getenv("LLM_PROVIDER", "openai_compatible")
     llm_profile: str = os.getenv("LLM_PROFILE", "default")
     llm_base_url: str = os.getenv("LLM_BASE_URL", "https://gmncode.cn")
@@ -99,9 +104,12 @@ class AppConfig:
     llm_preflight_probe: bool = _env_bool("LLM_PREFLIGHT_PROBE", True)
     conversation_memory_turns: int = int(os.getenv("CONVERSATION_MEMORY_TURNS", "3"))
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
+    log_file_path: str | None = _env_optional_str("LOG_FILE_PATH", "logs/eva_robot.jsonl")
     skip_startup_checks: bool = _env_bool("SKIP_STARTUP_CHECKS", False)
     wake_word: str = os.getenv("WAKE_WORD", "伊娃")
+    wake_ack_message: str = os.getenv("WAKE_ACK_MESSAGE", "我在。")
     sleep_command: str = os.getenv("SLEEP_COMMAND", "退下吧")
+    sleep_ack_message: str = os.getenv("SLEEP_ACK_MESSAGE", "好的，我先待命。")
     wake_timeout_seconds: int = int(os.getenv("WAKE_TIMEOUT_SECONDS", "60"))
 
     def resolved_llm_provider(self) -> str:

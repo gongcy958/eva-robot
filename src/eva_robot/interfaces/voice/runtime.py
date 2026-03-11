@@ -10,13 +10,17 @@ class VoiceRuntime:
         self,
         run_voice_turn: RunVoiceTurnUseCase,
         wake_word: str,
+        wake_ack_message: str,
         sleep_command: str,
+        sleep_ack_message: str,
         wake_timeout_seconds: int,
         logger: StructuredLogger | None = None,
     ) -> None:
         self._run_voice_turn = run_voice_turn
         self._wake_word = wake_word.strip()
+        self._wake_ack_message = wake_ack_message.strip()
         self._sleep_command = sleep_command.strip()
+        self._sleep_ack_message = sleep_ack_message.strip()
         self._wake_timeout_seconds = wake_timeout_seconds
         self._is_awake = False
         self._last_active_at = 0.0
@@ -88,6 +92,7 @@ class VoiceRuntime:
                 ):
                     print("[Wake] timeout reached, entering sleep mode.")
                     self._logger.info("runtime.wake_timeout")
+                    self._run_voice_turn.speak_feedback(self._sleep_ack_message)
                     self._set_sleeping()
 
                 text = self._run_voice_turn.listen_once()
@@ -97,6 +102,7 @@ class VoiceRuntime:
                 if self._contains(text, self._sleep_command):
                     print("[Wake] sleep command detected.")
                     self._logger.info("runtime.sleep_command_detected", text=text)
+                    self._run_voice_turn.speak_feedback(self._sleep_ack_message)
                     self._set_sleeping()
                     continue
 
@@ -110,6 +116,7 @@ class VoiceRuntime:
                             command_text=inline_command,
                         )
                         self._set_awake()
+                        self._run_voice_turn.speak_feedback(self._wake_ack_message)
                         self._run_voice_turn.handle_text(inline_command)
                         self._last_active_at = time.time()
                         self._announce_followup_listening()
@@ -117,6 +124,7 @@ class VoiceRuntime:
                         print("[Wake] wake word detected. Listening for your request...")
                         self._logger.info("runtime.wake_word_detected", text=text)
                         self._set_awake()
+                        self._run_voice_turn.speak_feedback(self._wake_ack_message)
                         self._announce_followup_listening()
                     else:
                         print("[Wake] sleeping, ignored.")

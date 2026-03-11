@@ -117,6 +117,9 @@ export WHISPER_DEVICE="cpu"
 export WHISPER_COMPUTE_TYPE="int8"
 export ASR_LANGUAGE="auto"
 export ASR_RETRIES="2"
+export ASR_MIN_AVG_LOGPROB="-1.2"
+export ASR_MAX_NO_SPEECH_PROB="0.7"
+export ASR_LOW_CONFIDENCE_MESSAGE="抱歉，我没太听清，请再说一遍。"
 export OLLAMA_URL="http://127.0.0.1:11434/api/generate"
 export OLLAMA_MODEL="qwen2.5:7b-instruct"
 export SAMPLE_RATE="16000"
@@ -131,9 +134,12 @@ export ASR_BEAM_SIZE="5"
 export ASR_TEMPERATURE="0.0"
 export CONVERSATION_MEMORY_TURNS="3"
 export LOG_LEVEL="INFO"
+export LOG_FILE_PATH="logs/eva_robot.jsonl"
 export SKIP_STARTUP_CHECKS="false"
 export WAKE_WORD="伊娃"
+export WAKE_ACK_MESSAGE="我在。"
 export SLEEP_COMMAND="退下吧"
+export SLEEP_ACK_MESSAGE="好的，我先待命。"
 export WAKE_TIMEOUT_SECONDS="60"
 ```
 
@@ -162,16 +168,51 @@ Wake interaction is smoother now:
 
 - You can say wake word and command in one sentence, for example `伊娃，帮我翻译 hello`
 - After each reply, Eva stays awake and keeps listening for follow-up questions until timeout
+- Eva now gives a short wake/sleep confirmation, and both messages are configurable
+- Structured tutor replies are normalized before TTS so they sound more natural when spoken
+
+Learning mode is now stateful. You can say commands like:
+
+- `进入翻译模式`
+- `进入纠错模式`
+- `进入语法模式`
+- `进入口语模式`
+- `退出模式`
+
+Family English scenes are also stateful. You can say:
+
+- `进入早餐英语场景`
+- `进入亲子互动英语场景`
+- `进入睡前英语场景`
+- `退出场景`
+
+You can also ask Eva:
+
+- `当前是什么模式`
+- `当前是什么场景`
 
 The runtime keeps a short in-memory conversation history and emits structured
 JSON logs to stdout for audio, ASR, intent routing, LLM, TTS, and wake/sleep
 events.
+
+The same JSON logs can also be written to a local file such as
+`logs/eva_robot.jsonl` for later debugging and replay.
+
+If ASR confidence looks too low, Eva now asks you to repeat instead of trying
+to answer based on a shaky transcription.
 
 Automated tests are planned but are not included in the repository yet. When a
 test suite is added, it can be run with:
 
 ```bash
 pytest
+```
+
+For a lightweight local regression check of routing, learning mode, and
+follow-up behavior, run:
+
+```bash
+python3 scripts/smoke_regression.py
 ```
 
 ## Configuration
