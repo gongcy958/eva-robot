@@ -158,6 +158,11 @@ Startup preflight now runs automatically before the voice loop. It checks:
 - OpenAI-compatible API key and lightweight model probe
 - Ollama endpoint reachability and selected local model
 
+Wake interaction is smoother now:
+
+- You can say wake word and command in one sentence, for example `伊娃，帮我翻译 hello`
+- After each reply, Eva stays awake and keeps listening for follow-up questions until timeout
+
 The runtime keeps a short in-memory conversation history and emits structured
 JSON logs to stdout for audio, ASR, intent routing, LLM, TTS, and wake/sleep
 events.

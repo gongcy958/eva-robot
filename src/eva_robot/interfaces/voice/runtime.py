@@ -1,3 +1,4 @@
+import re
 import time
 
 from ...application.use_cases.run_voice_turn import RunVoiceTurnUseCase
@@ -29,6 +30,31 @@ class VoiceRuntime:
         if not phrase:
             return False
         return self._normalize(phrase) in self._normalize(text)
+
+    def _strip_prefix_phrase(self, text: str, phrase: str) -> str:
+        phrase = " ".join(phrase.strip().split())
+        if not phrase:
+            return text.strip()
+
+        tokens = [re.escape(token) for token in phrase.split()]
+        pattern = re.compile(
+            r"^\s*" + r"\s*".join(tokens) + r"[\s,，。.!?？:：;；、-]*",
+            re.IGNORECASE,
+        )
+        return pattern.sub("", text, count=1).strip()
+
+    def _extract_inline_command(self, text: str, phrase: str) -> str | None:
+        stripped = self._strip_prefix_phrase(text, phrase)
+        if stripped and stripped != text.strip():
+            return stripped
+        return None
+
+    def _announce_followup_listening(self) -> None:
+        print("[Wake] still listening for follow-up...")
+        self._logger.info(
+            "runtime.awaiting_followup",
+            wake_timeout_seconds=self._wake_timeout_seconds,
+        )
 
     def _set_awake(self) -> None:
         self._is_awake = True
@@ -75,17 +101,52 @@ class VoiceRuntime:
                     continue
 
                 if not self._is_awake:
-                    if self._contains(text, self._wake_word):
-                        print("[Wake] wake word detected.")
+                    inline_command = self._extract_inline_command(text, self._wake_word)
+                    if inline_command is not None:
+                        print("[Wake] wake word and command detected.")
+                        self._logger.info(
+                            "runtime.inline_command_detected",
+                            text=text,
+                            command_text=inline_command,
+                        )
+                        self._set_awake()
+                        self._run_voice_turn.handle_text(inline_command)
+                        self._last_active_at = time.time()
+                        self._announce_followup_listening()
+                    elif self._contains(text, self._wake_word):
+                        print("[Wake] wake word detected. Listening for your request...")
                         self._logger.info("runtime.wake_word_detected", text=text)
                         self._set_awake()
+                        self._announce_followup_listening()
                     else:
                         print("[Wake] sleeping, ignored.")
                         self._logger.info("runtime.sleeping_ignored", text=text)
                     continue
 
-                self._run_voice_turn.handle_text(text)
+                awake_text = self._extract_inline_command(text, self._wake_word) or text
+                awake_text = awake_text.strip()
+                if self._contains(text, self._wake_word):
+                    wake_remainder = self._strip_prefix_phrase(text, self._wake_word)
+                    if not wake_remainder:
+                        self._logger.info("runtime.wake_word_while_awake", text=text)
+                        self._announce_followup_listening()
+                        continue
+
+                if not awake_text:
+                    self._logger.info("runtime.empty_followup_ignored", text=text)
+                    self._announce_followup_listening()
+                    continue
+
+                if awake_text != text:
+                    self._logger.info(
+                        "runtime.wake_prefix_stripped",
+                        original_text=text,
+                        command_text=awake_text,
+                    )
+
+                self._run_voice_turn.handle_text(awake_text)
                 self._last_active_at = time.time()
+                self._announce_followup_listening()
             except KeyboardInterrupt:
                 print("\nExiting...")
                 self._logger.info("runtime.stopped")
