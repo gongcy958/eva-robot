@@ -1,6 +1,7 @@
 from ...application.use_cases.run_voice_turn import RunVoiceTurnUseCase
 from ...domain.intents import IntentRouter
 from ...infrastructure.asr.faster_whisper_asr import FasterWhisperAsr
+from ...infrastructure.llm.failover_client import FailoverLlmClient
 from ...infrastructure.llm.openai_compatible_client import OpenAiCompatibleLlmClient
 from ...infrastructure.llm.ollama_client import OllamaLlmClient
 from ...infrastructure.tts.system_tts import SystemTts
@@ -11,47 +12,86 @@ from ...shared.observability import StructuredLogger, configure_logging
 from ...shared.preflight import StartupPreflight
 
 
-def _build_llm_client(config: AppConfig, logger: StructuredLogger):
-    provider = config.resolved_llm_provider()
+def _build_openai_client(
+    config: AppConfig,
+    logger: StructuredLogger,
+) -> OpenAiCompatibleLlmClient:
     model = config.resolved_llm_model()
+    if not config.llm_api_key:
+        raise ValueError(
+            "LLM_API_KEY is required when LLM_PROVIDER=openai_compatible."
+        )
 
-    if provider == "openai_compatible":
-        if not config.llm_api_key:
-            raise ValueError(
-                "LLM_API_KEY is required when LLM_PROVIDER=openai_compatible."
-            )
+    return OpenAiCompatibleLlmClient(
+        base_url=config.llm_base_url,
+        api_key=config.llm_api_key,
+        model=model,
+        timeout_seconds=config.llm_timeout_seconds,
+        retries=config.llm_retries,
+        logger=logger,
+    )
 
+
+def _build_ollama_client(
+    config: AppConfig,
+    logger: StructuredLogger,
+) -> OllamaLlmClient:
+    return OllamaLlmClient(
+        url=config.ollama_url,
+        model=config.ollama_model,
+        timeout_seconds=config.llm_timeout_seconds,
+        retries=config.llm_retries,
+        logger=logger,
+    )
+
+
+def _build_llm_client(
+    config: AppConfig,
+    logger: StructuredLogger,
+    effective_provider: str,
+):
+    configured_provider = config.resolved_llm_provider()
+    remote_model = config.resolved_llm_model()
+
+    if configured_provider == "openai_compatible" and effective_provider == "ollama":
+        logger.warning(
+            "llm.provider_selected",
+            provider="ollama",
+            configured_provider=configured_provider,
+            model=config.ollama_model,
+            profile=config.llm_profile,
+            base_url=config.ollama_url,
+            fallback_from="openai_compatible",
+        )
+        return _build_ollama_client(config, logger)
+
+    if configured_provider == "openai_compatible":
         logger.info(
             "llm.provider_selected",
-            provider=provider,
-            model=model,
+            provider="openai_compatible",
+            model=remote_model,
             profile=config.llm_profile,
             base_url=config.llm_base_url,
+            fallback_provider="ollama",
+            fallback_model=config.ollama_model,
         )
-        return OpenAiCompatibleLlmClient(
-            base_url=config.llm_base_url,
-            api_key=config.llm_api_key,
-            model=model,
-            timeout_seconds=config.llm_timeout_seconds,
-            retries=config.llm_retries,
+        return FailoverLlmClient(
+            primary=_build_openai_client(config, logger),
+            fallback=_build_ollama_client(config, logger),
+            primary_provider="openai_compatible",
+            fallback_provider="ollama",
             logger=logger,
         )
 
-    if provider == "ollama":
+    if configured_provider == "ollama":
         logger.info(
             "llm.provider_selected",
-            provider=provider,
-            model=model,
+            provider="ollama",
+            model=config.ollama_model,
             profile=config.llm_profile,
             base_url=config.ollama_url,
         )
-        return OllamaLlmClient(
-            url=config.ollama_url,
-            model=model,
-            timeout_seconds=config.llm_timeout_seconds,
-            retries=config.llm_retries,
-            logger=logger,
-        )
+        return _build_ollama_client(config, logger)
 
     raise ValueError(
         f"Unsupported LLM_PROVIDER={config.llm_provider!r}. "
@@ -63,7 +103,7 @@ def main() -> None:
     config = AppConfig()
     configure_logging(config.log_level, config.log_file_path)
     logger = StructuredLogger()
-    StartupPreflight(config, logger).run()
+    preflight_result = StartupPreflight(config, logger).run()
 
     recorder = MicrophoneRecorder(
         sample_rate=config.sample_rate,
@@ -84,7 +124,11 @@ def main() -> None:
         temperature=config.asr_temperature,
     )
     router = IntentRouter()
-    llm = _build_llm_client(config, logger)
+    llm = _build_llm_client(
+        config,
+        logger,
+        effective_provider=preflight_result.effective_llm_provider,
+    )
     tts = SystemTts()
 
     use_case = RunVoiceTurnUseCase(

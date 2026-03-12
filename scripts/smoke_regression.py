@@ -11,6 +11,9 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from src.eva_robot.application.use_cases.run_voice_turn import RunVoiceTurnUseCase
 from src.eva_robot.domain.intents import IntentRouter
+from src.eva_robot.infrastructure.llm.failover_client import FailoverLlmClient
+from src.eva_robot.shared.config import AppConfig
+from src.eva_robot.shared.preflight import PreflightFinding, StartupPreflight
 
 
 class DummyRecorder:
@@ -38,6 +41,18 @@ class CapturingLlm:
     def generate(self, prompt: str, user_input: str) -> str:
         self.calls.append((prompt, user_input))
         return "Translation: hello\nTip: keep it simple"
+
+
+@dataclass
+class SequencedLlm:
+    responses: list[str]
+    calls: list[tuple[str, str]]
+
+    def generate(self, prompt: str, user_input: str) -> str:
+        self.calls.append((prompt, user_input))
+        if not self.responses:
+            return ""
+        return self.responses.pop(0)
 
 
 def assert_equal(actual, expected, message: str) -> None:
@@ -120,11 +135,54 @@ def test_follow_up_rewrite() -> None:
     assert "Explain the reason behind your previous reply" in llm.calls[3][1], "why follow-up should explain prior answer"
 
 
+def test_llm_failover_switches_to_ollama() -> None:
+    primary = SequencedLlm(responses=[""], calls=[])
+    fallback = SequencedLlm(responses=["from ollama", "still ollama"], calls=[])
+    client = FailoverLlmClient(
+        primary=primary,
+        fallback=fallback,
+        primary_provider="openai_compatible",
+        fallback_provider="ollama",
+    )
+
+    assert_equal(client.generate("prompt 1", "hello"), "from ollama", "first call should fall back")
+    assert_equal(client.generate("prompt 2", "world"), "still ollama", "later calls should stay on ollama")
+    assert_equal(len(primary.calls), 1, "primary should stop after failover")
+    assert_equal(len(fallback.calls), 2, "fallback should serve both calls")
+
+
+def test_preflight_returns_ollama_when_remote_fails() -> None:
+    config = AppConfig(
+        whisper_model_path="small",
+        llm_provider="openai_compatible",
+        llm_api_key="dummy",
+        ollama_model="qwen2.5:7b-instruct",
+        skip_startup_checks=False,
+    )
+    preflight = StartupPreflight(config)
+    preflight._check_whisper_model = lambda: [
+        PreflightFinding("info", "whisper.path.named_model", "ok")
+    ]
+    preflight._check_openai_compatible = lambda: [
+        PreflightFinding("error", "llm.probe.failed", "remote failed")
+    ]
+    preflight._check_ollama = lambda: [
+        PreflightFinding("info", "ollama.tags.ok", "ollama ok"),
+        PreflightFinding("info", "ollama.model.ok", "model ok"),
+    ]
+
+    result = preflight.run()
+    assert_equal(result.effective_llm_provider, "ollama", "preflight provider fallback")
+    assert_equal(result.used_fallback, True, "preflight fallback flag")
+
+
 def main() -> int:
     test_intent_router()
     test_stateful_learning_mode()
     test_stateful_family_scene()
     test_follow_up_rewrite()
+    test_llm_failover_switches_to_ollama()
+    test_preflight_returns_ollama_when_remote_fails()
     print("smoke_regression: ok")
     return 0
 

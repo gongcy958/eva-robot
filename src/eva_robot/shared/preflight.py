@@ -25,6 +25,13 @@ class PreflightFinding:
     code: str
     message: str
 
+
+@dataclass(frozen=True)
+class StartupPreflightResult:
+    effective_llm_provider: str
+    used_fallback: bool = False
+
+
 def _normalize_ollama_tags_url(generate_url: str) -> str:
     normalized = generate_url.rstrip("/")
     if normalized.endswith("/api/generate"):
@@ -39,7 +46,8 @@ class StartupPreflight:
         self._config = config
         self._logger = logger or StructuredLogger()
 
-    def run(self) -> None:
+    def run(self) -> StartupPreflightResult:
+        provider = self._config.resolved_llm_provider()
         if self._config.skip_startup_checks:
             self._emit(
                 [
@@ -50,32 +58,73 @@ class StartupPreflight:
                     )
                 ]
             )
-            return
+            return StartupPreflightResult(effective_llm_provider=provider)
 
         findings: list[PreflightFinding] = []
-        findings.extend(self._check_whisper_model())
+        blocking_findings: list[PreflightFinding] = []
 
-        provider = self._config.resolved_llm_provider()
+        whisper_findings = self._check_whisper_model()
+        findings.extend(whisper_findings)
+        blocking_findings.extend(
+            finding for finding in whisper_findings if finding.level == "error"
+        )
+
+        used_fallback = False
+        effective_provider = provider
         if provider == "openai_compatible":
-            findings.extend(self._check_openai_compatible())
+            openai_findings = self._check_openai_compatible()
+            if self._has_errors(openai_findings):
+                ollama_findings = self._check_ollama()
+                if self._has_errors(ollama_findings):
+                    findings.extend(openai_findings)
+                    findings.extend(ollama_findings)
+                    blocking_findings.extend(
+                        finding
+                        for finding in openai_findings + ollama_findings
+                        if finding.level == "error"
+                    )
+                else:
+                    findings.extend(self._downgrade_errors(openai_findings))
+                    findings.extend(ollama_findings)
+                    findings.append(
+                        PreflightFinding(
+                            "warning",
+                            "llm.fallback.to_ollama",
+                            "OpenAI-compatible provider is unavailable; "
+                            f"falling back to local Ollama model: {self._config.ollama_model}",
+                        )
+                    )
+                    used_fallback = True
+                    effective_provider = "ollama"
+            else:
+                findings.extend(openai_findings)
         elif provider == "ollama":
-            findings.extend(self._check_ollama())
-        else:
-            findings.append(
-                PreflightFinding(
-                    "error",
-                    "llm.provider.unsupported",
-                    f"Unsupported LLM provider: {self._config.llm_provider}",
-                )
+            ollama_findings = self._check_ollama()
+            findings.extend(ollama_findings)
+            blocking_findings.extend(
+                finding for finding in ollama_findings if finding.level == "error"
             )
+        else:
+            unsupported = PreflightFinding(
+                "error",
+                "llm.provider.unsupported",
+                f"Unsupported LLM provider: {self._config.llm_provider}",
+            )
+            findings.append(unsupported)
+            blocking_findings.append(unsupported)
 
         self._emit(findings)
 
-        if any(finding.level == "error" for finding in findings):
+        if blocking_findings:
             raise RuntimeError(
                 "Startup preflight failed. Fix the errors above or set "
                 "SKIP_STARTUP_CHECKS=true to bypass temporarily."
             )
+
+        return StartupPreflightResult(
+            effective_llm_provider=effective_provider,
+            used_fallback=used_fallback,
+        )
 
     def _emit(self, findings: list[PreflightFinding]) -> None:
         if not findings:
@@ -87,6 +136,26 @@ class StartupPreflight:
             print(f"[Preflight][{finding.level.upper()}] {finding.message}")
             log_fn = getattr(self._logger, finding.level)
             log_fn("preflight.check", code=finding.code, message=finding.message)
+
+    @staticmethod
+    def _has_errors(findings: list[PreflightFinding]) -> bool:
+        return any(finding.level == "error" for finding in findings)
+
+    @staticmethod
+    def _downgrade_errors(findings: list[PreflightFinding]) -> list[PreflightFinding]:
+        downgraded: list[PreflightFinding] = []
+        for finding in findings:
+            if finding.level == "error":
+                downgraded.append(
+                    PreflightFinding(
+                        "warning",
+                        finding.code,
+                        finding.message,
+                    )
+                )
+            else:
+                downgraded.append(finding)
+        return downgraded
 
     def _check_whisper_model(self) -> list[PreflightFinding]:
         model_path = self._config.whisper_model_path.strip()

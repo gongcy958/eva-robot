@@ -149,6 +149,7 @@ Provider selection:
 
 - `LLM_PROVIDER=openai_compatible`: uses the remote compatible API and defaults to `gpt-5.1-2025-11-13`
 - `LLM_PROVIDER=ollama`: uses the local Ollama model in `OLLAMA_MODEL`
+- When `LLM_PROVIDER=openai_compatible`, Eva automatically falls back to local Ollama for the current session if remote preflight or runtime requests fail and Ollama is available
 
 One-command mode switching:
 
@@ -163,6 +164,7 @@ Startup preflight now runs automatically before the voice loop. It checks:
 - Active LLM backend connectivity
 - OpenAI-compatible API key and lightweight model probe
 - Ollama endpoint reachability and selected local model
+- If the remote backend fails but Ollama is healthy, startup continues with Ollama instead of exiting
 
 Wake interaction is smoother now:
 
