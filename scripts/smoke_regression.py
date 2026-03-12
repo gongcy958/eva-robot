@@ -12,6 +12,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.eva_robot.application.use_cases.run_voice_turn import RunVoiceTurnUseCase
 from src.eva_robot.domain.intents import IntentRouter
 from src.eva_robot.infrastructure.llm.failover_client import FailoverLlmClient
+from src.eva_robot.interfaces.voice.runtime import VoiceRuntime
 from src.eva_robot.shared.config import AppConfig
 from src.eva_robot.shared.preflight import PreflightFinding, StartupPreflight
 
@@ -53,6 +54,24 @@ class SequencedLlm:
         if not self.responses:
             return ""
         return self.responses.pop(0)
+
+
+@dataclass
+class ScriptedVoiceTurn:
+    heard: list[str]
+    spoken: list[str]
+    handled: list[str]
+
+    def listen_once(self) -> str | None:
+        if not self.heard:
+            raise KeyboardInterrupt
+        return self.heard.pop(0)
+
+    def speak_feedback(self, text: str) -> None:
+        self.spoken.append(text)
+
+    def handle_text(self, text: str) -> None:
+        self.handled.append(text)
 
 
 def assert_equal(actual, expected, message: str) -> None:
@@ -176,6 +195,52 @@ def test_preflight_returns_ollama_when_remote_fails() -> None:
     assert_equal(result.used_fallback, True, "preflight fallback flag")
 
 
+def test_runtime_wake_then_follow_up() -> None:
+    turn = ScriptedVoiceTurn(
+        heard=["hello", "how are you"],
+        spoken=[],
+        handled=[],
+    )
+    runtime = VoiceRuntime(
+        run_voice_turn=turn,
+        wake_word="hello",
+        wake_ack_message="I'm here.",
+        sleep_command="goodbye",
+        sleep_ack_message="Going idle.",
+        wake_timeout_seconds=60,
+    )
+
+    runtime.run()
+
+    assert_equal(turn.spoken[0], "I'm here.", "wake ack should be spoken")
+    assert_equal(turn.handled, ["how are you"], "follow-up after wake word should be handled")
+
+
+def test_runtime_inline_wake_command() -> None:
+    turn = ScriptedVoiceTurn(
+        heard=["hello translate this"],
+        spoken=[],
+        handled=[],
+    )
+    runtime = VoiceRuntime(
+        run_voice_turn=turn,
+        wake_word="hello",
+        wake_ack_message="I'm here.",
+        sleep_command="goodbye",
+        sleep_ack_message="Going idle.",
+        wake_timeout_seconds=60,
+    )
+
+    runtime.run()
+
+    assert_equal(turn.spoken[0], "I'm here.", "inline wake should still speak ack")
+    assert_equal(
+        turn.handled,
+        ["translate this"],
+        "inline wake command should strip wake word and handle the command",
+    )
+
+
 def main() -> int:
     test_intent_router()
     test_stateful_learning_mode()
@@ -183,6 +248,8 @@ def main() -> int:
     test_follow_up_rewrite()
     test_llm_failover_switches_to_ollama()
     test_preflight_returns_ollama_when_remote_fails()
+    test_runtime_wake_then_follow_up()
+    test_runtime_inline_wake_command()
     print("smoke_regression: ok")
     return 0
 
