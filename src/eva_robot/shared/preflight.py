@@ -8,6 +8,12 @@ import requests
 
 from .config import AppConfig
 from .observability import StructuredLogger
+from .openai_compatible import (
+    extract_openai_model_ids,
+    normalize_openai_models_url,
+    normalize_openai_responses_url,
+    resolve_openai_model,
+)
 
 
 Level = Literal["info", "warning", "error"]
@@ -18,25 +24,6 @@ class PreflightFinding:
     level: Level
     code: str
     message: str
-
-
-def _normalize_openai_models_url(base_url: str) -> str:
-    normalized = base_url.rstrip("/")
-    if normalized.endswith("/models"):
-        return normalized
-    if normalized.endswith("/v1"):
-        return f"{normalized}/models"
-    return f"{normalized}/v1/models"
-
-
-def _normalize_openai_responses_url(base_url: str) -> str:
-    normalized = base_url.rstrip("/")
-    if normalized.endswith("/responses"):
-        return normalized
-    if normalized.endswith("/v1"):
-        return f"{normalized}/responses"
-    return f"{normalized}/v1/responses"
-
 
 def _normalize_ollama_tags_url(generate_url: str) -> str:
     normalized = generate_url.rstrip("/")
@@ -144,14 +131,18 @@ class StartupPreflight:
         findings: list[PreflightFinding] = []
         headers = {"Authorization": f"Bearer {self._config.llm_api_key}"}
         timeout_seconds = min(self._config.llm_timeout_seconds, 15)
+        requested_model = self._config.resolved_llm_model()
+        probe_model = requested_model
+        advertised_models: list[str] = []
 
         try:
             models_response = requests.get(
-                _normalize_openai_models_url(self._config.llm_base_url),
+                normalize_openai_models_url(self._config.llm_base_url),
                 headers=headers,
                 timeout=timeout_seconds,
             )
             models_response.raise_for_status()
+            advertised_models = extract_openai_model_ids(models_response.json())
             findings.append(
                 PreflightFinding(
                     "info",
@@ -159,6 +150,27 @@ class StartupPreflight:
                     "OpenAI-compatible endpoint and API key look valid.",
                 )
             )
+            resolved_model = resolve_openai_model(requested_model, advertised_models)
+            if resolved_model and resolved_model != requested_model:
+                probe_model = resolved_model
+                findings.append(
+                    PreflightFinding(
+                        "warning",
+                        "llm.model.resolved",
+                        "Configured model "
+                        f"{requested_model} is not advertised by the provider; "
+                        f"using {resolved_model} instead.",
+                    )
+                )
+            elif advertised_models and requested_model not in advertised_models:
+                findings.append(
+                    PreflightFinding(
+                        "warning",
+                        "llm.model.unlisted",
+                        "Configured model "
+                        f"{requested_model} is not advertised by the provider.",
+                    )
+                )
         except Exception as exc:
             return [
                 PreflightFinding(
@@ -180,10 +192,10 @@ class StartupPreflight:
 
         try:
             response = requests.post(
-                _normalize_openai_responses_url(self._config.llm_base_url),
+                normalize_openai_responses_url(self._config.llm_base_url),
                 headers={**headers, "Content-Type": "application/json"},
                 json={
-                    "model": self._config.resolved_llm_model(),
+                    "model": probe_model,
                     "input": [{"role": "user", "content": "ping"}],
                     "max_output_tokens": 1,
                 },
@@ -194,7 +206,13 @@ class StartupPreflight:
                 PreflightFinding(
                     "info",
                     "llm.probe.ok",
-                    f"Remote model probe succeeded: {self._config.resolved_llm_model()}",
+                    "Remote model probe succeeded: "
+                    f"{probe_model}"
+                    + (
+                        f" (requested {requested_model})"
+                        if probe_model != requested_model
+                        else ""
+                    ),
                 )
             )
         except Exception as exc:
@@ -202,7 +220,14 @@ class StartupPreflight:
                 PreflightFinding(
                     "error",
                     "llm.probe.failed",
-                    f"Remote model probe failed for {self._config.resolved_llm_model()}: {exc}",
+                    "Remote model probe failed for "
+                    f"{probe_model}"
+                    + (
+                        f" (requested {requested_model})"
+                        if probe_model != requested_model
+                        else ""
+                    )
+                    + f": {exc}",
                 )
             )
 

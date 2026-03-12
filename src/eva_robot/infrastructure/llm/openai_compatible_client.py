@@ -6,15 +6,12 @@ from typing import Any
 import requests
 
 from ...shared.observability import StructuredLogger
-
-
-def _normalize_responses_url(base_url: str) -> str:
-    normalized = base_url.rstrip("/")
-    if normalized.endswith("/responses"):
-        return normalized
-    if normalized.endswith("/v1"):
-        return f"{normalized}/responses"
-    return f"{normalized}/v1/responses"
+from ...shared.openai_compatible import (
+    extract_openai_model_ids,
+    normalize_openai_models_url,
+    normalize_openai_responses_url,
+    resolve_openai_model,
+)
 
 
 def _extract_text_content(payload: dict[str, Any]) -> str:
@@ -61,14 +58,19 @@ class OpenAiCompatibleLlmClient:
         retries: int = 3,
         logger: StructuredLogger | None = None,
     ) -> None:
-        self._url = _normalize_responses_url(base_url)
+        self._url = normalize_openai_responses_url(base_url)
+        self._models_url = normalize_openai_models_url(base_url)
         self._api_key = api_key
+        self._requested_model = model
         self._model = model
         self._timeout_seconds = timeout_seconds
         self._retries = retries
         self._logger = logger or StructuredLogger()
+        self._model_resolution_attempted = False
 
     def generate(self, prompt: str, user_input: str) -> str:
+        self._resolve_model_alias()
+
         headers = {
             "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
@@ -118,3 +120,43 @@ class OpenAiCompatibleLlmClient:
                 )
 
         return ""
+
+    def _resolve_model_alias(self) -> None:
+        if self._model_resolution_attempted:
+            return
+
+        self._model_resolution_attempted = True
+
+        try:
+            response = requests.get(
+                self._models_url,
+                headers={"Authorization": f"Bearer {self._api_key}"},
+                timeout=min(self._timeout_seconds, 15),
+            )
+            response.raise_for_status()
+            advertised_models = extract_openai_model_ids(response.json())
+            resolved_model = resolve_openai_model(
+                self._requested_model, advertised_models
+            )
+            if resolved_model and resolved_model != self._requested_model:
+                self._model = resolved_model
+                self._logger.warning(
+                    "llm.model_resolved",
+                    provider="openai_compatible",
+                    requested_model=self._requested_model,
+                    resolved_model=resolved_model,
+                )
+            elif advertised_models and self._requested_model not in advertised_models:
+                self._logger.warning(
+                    "llm.model_unlisted",
+                    provider="openai_compatible",
+                    requested_model=self._requested_model,
+                    available_models=advertised_models[:5],
+                )
+        except Exception as exc:
+            self._logger.warning(
+                "llm.model_resolution_failed",
+                provider="openai_compatible",
+                requested_model=self._requested_model,
+                error=str(exc),
+            )

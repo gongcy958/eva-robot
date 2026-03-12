@@ -107,8 +107,8 @@ Key variables:
 ```bash
 export LLM_PROVIDER="openai_compatible"
 export LLM_PROFILE="default"  # or high_quality
-export LLM_DEFAULT_MODEL="gpt-5.1"
-export LLM_HIGH_QUALITY_MODEL="gpt-5.2"
+export LLM_DEFAULT_MODEL="gpt-5.1-2025-11-13"
+export LLM_HIGH_QUALITY_MODEL="gpt-5.4"
 export LLM_BASE_URL="https://gmncode.cn"
 export LLM_API_KEY="your_api_key_here"
 export LLM_PREFLIGHT_PROBE="true"
@@ -147,7 +147,7 @@ If your wake or sleep phrases include Chinese, keep `ASR_LANGUAGE="auto"` so Whi
 
 Provider selection:
 
-- `LLM_PROVIDER=openai_compatible`: uses the remote compatible API and defaults to `gpt-5.1`
+- `LLM_PROVIDER=openai_compatible`: uses the remote compatible API and defaults to `gpt-5.1-2025-11-13`
 - `LLM_PROVIDER=ollama`: uses the local Ollama model in `OLLAMA_MODEL`
 
 One-command mode switching:
