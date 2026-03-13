@@ -644,14 +644,46 @@ class RunVoiceTurnUseCase:
 
         return False
 
-    def listen_once(self) -> str | None:
-        print(
-            f"\nListening... (max {self._record_seconds}s, "
-            "auto-stop after you stop speaking)"
+    def listen_once(
+        self,
+        wait_timeout_seconds: float | None = None,
+        max_record_seconds: float | None = None,
+    ) -> str | None:
+        wait_timeout = (
+            round(wait_timeout_seconds, 1)
+            if wait_timeout_seconds is not None
+            else None
         )
+        record_limit = (
+            round(max_record_seconds, 1)
+            if max_record_seconds is not None
+            else self._record_seconds
+        )
+        if wait_timeout is None:
+            print(
+                f"\nListening... (record up to {record_limit}s after speech starts)"
+            )
+        else:
+            print(
+                "\nListening... "
+                f"(wait up to {wait_timeout}s for speech, "
+                f"record up to {record_limit}s after speech starts)"
+            )
         started_at = time.perf_counter()
         try:
-            audio = self._recorder.record()
+            if hasattr(self._recorder, "record_with_limits"):
+                audio = self._recorder.record_with_limits(
+                    wait_timeout_seconds=wait_timeout_seconds,
+                    max_record_seconds=max_record_seconds,
+                )
+            else:
+                try:
+                    audio = self._recorder.record(
+                        wait_timeout_seconds=wait_timeout_seconds,
+                        max_record_seconds=max_record_seconds,
+                    )
+                except TypeError:
+                    audio = self._recorder.record()
         except Exception as exc:
             print(f"[Audio] recording error: {exc}")
             self._logger.error("audio.record_failed", error=str(exc))

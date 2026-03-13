@@ -70,6 +70,11 @@ class VoiceRuntime:
         self._last_active_at = 0.0
         self._logger.info("runtime.sleeping")
 
+    def _remaining_awake_seconds(self) -> float:
+        if not self._is_awake:
+            return 0.0
+        return max(0.1, self._wake_timeout_seconds - (time.time() - self._last_active_at))
+
     def run(self) -> None:
         print("=== Family English Robot Stable MVP ===")
         print(
@@ -95,7 +100,12 @@ class VoiceRuntime:
                     self._run_voice_turn.speak_feedback(self._sleep_ack_message)
                     self._set_sleeping()
 
-                text = self._run_voice_turn.listen_once()
+                wait_timeout_seconds = (
+                    self._remaining_awake_seconds() if self._is_awake else None
+                )
+                text = self._run_voice_turn.listen_once(
+                    wait_timeout_seconds=wait_timeout_seconds,
+                )
                 if not text:
                     continue
 

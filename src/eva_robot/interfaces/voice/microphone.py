@@ -34,15 +34,27 @@ class MicrophoneRecorder:
             return 0.0
         return float(np.sqrt(np.mean(np.square(chunk, dtype=np.float32))))
 
-    def record(self) -> np.ndarray:
+    def record(
+        self,
+        wait_timeout_seconds: float | None = None,
+        max_record_seconds: float | None = None,
+    ) -> np.ndarray:
         chunk_seconds = 0.1
         frames_per_chunk = int(self._sample_rate * chunk_seconds)
         min_chunks = max(1, math.ceil(self._min_record_seconds / chunk_seconds))
-        max_chunks = max(min_chunks, math.ceil(self._max_record_seconds / chunk_seconds))
+        max_chunks = max(
+            min_chunks,
+            math.ceil((max_record_seconds or self._max_record_seconds) / chunk_seconds),
+        )
         silence_chunks_required = max(
             1, math.ceil(self._silence_duration_seconds / chunk_seconds)
         )
-        no_speech_chunks = max(1, math.ceil(self._no_speech_timeout_seconds / chunk_seconds))
+        no_speech_chunks = max(
+            1,
+            math.ceil(
+                (wait_timeout_seconds or self._no_speech_timeout_seconds) / chunk_seconds
+            ),
+        )
         preroll_chunks = max(1, math.ceil(self._preroll_duration_seconds / chunk_seconds))
 
         chunks: list[np.ndarray] = []
@@ -57,7 +69,7 @@ class MicrophoneRecorder:
             dtype="float32",
             blocksize=frames_per_chunk,
         ) as stream:
-            for i in range(max_chunks):
+            for i in range(no_speech_chunks + max_chunks):
                 data, _overflow = stream.read(frames_per_chunk)
                 chunk = data[:, 0].copy()
                 level = self._chunk_level(chunk)
@@ -85,12 +97,17 @@ class MicrophoneRecorder:
                 else:
                     silence_chunks += 1
 
+                speech_chunk_count = len(chunks)
+
                 # Once user has spoken enough, stop after sustained silence.
                 if (
                     speech_started
-                    and i + 1 >= min_chunks
+                    and speech_chunk_count >= min_chunks
                     and silence_chunks >= silence_chunks_required
                 ):
+                    break
+
+                if speech_started and speech_chunk_count >= max_chunks:
                     break
 
         if not chunks:

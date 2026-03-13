@@ -33,7 +33,11 @@ class TtsService(Protocol):
 
 
 class AudioInputService(Protocol):
-    def record(self) -> object:
+    def record(
+        self,
+        wait_timeout_seconds: float | None = None,
+        max_record_seconds: float | None = None,
+    ) -> object:
         ...
 
 
