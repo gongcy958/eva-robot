@@ -22,7 +22,7 @@ from src.eva_robot.shared.preflight import PreflightFinding, StartupPreflight
 
 
 class DummyRecorder:
-    def record(self):
+    def record(self, wait_timeout_seconds=None, max_record_seconds=None):
         return None
 
 
@@ -66,7 +66,11 @@ class ScriptedVoiceTurn:
     spoken: list[str]
     handled: list[str]
 
-    def listen_once(self) -> str | None:
+    def listen_once(
+        self,
+        wait_timeout_seconds: float | None = None,
+        max_record_seconds: float | None = None,
+    ) -> str | None:
         if not self.heard:
             raise KeyboardInterrupt
         return self.heard.pop(0)
@@ -313,6 +317,48 @@ def test_microphone_waits_for_real_speech() -> None:
     )
 
 
+def test_microphone_waits_before_speech_without_shortening_recording() -> None:
+    chunks = [
+        np.array([0.0], dtype=np.float32),
+        np.array([0.0], dtype=np.float32),
+        np.array([0.0], dtype=np.float32),
+        np.array([0.6], dtype=np.float32),
+        np.array([0.6], dtype=np.float32),
+        np.array([0.6], dtype=np.float32),
+        np.array([0.6], dtype=np.float32),
+        np.array([0.6], dtype=np.float32),
+        np.array([0.0], dtype=np.float32),
+    ]
+    original_input_stream = microphone_module.sd.InputStream
+    microphone_module.sd.InputStream = lambda **kwargs: FakeInputStream(chunks, **kwargs)
+    try:
+        recorder = MicrophoneRecorder(
+            sample_rate=10,
+            record_seconds=3,
+            min_record_seconds=0.1,
+            max_record_seconds=0.5,
+            silence_duration_seconds=0.5,
+            silence_threshold=0.5,
+            no_speech_timeout_seconds=1.0,
+            speech_start_chunks=3,
+            preroll_duration_seconds=0.2,
+        )
+        recorded = recorder.record(wait_timeout_seconds=1.0, max_record_seconds=0.5)
+    finally:
+        microphone_module.sd.InputStream = original_input_stream
+
+    assert_equal(
+        recorded.size,
+        5,
+        "recorder should keep the full post-speech window even after a delayed start",
+    )
+    assert_allclose(
+        recorded.tolist(),
+        [0.6, 0.6, 0.6, 0.6, 0.0],
+        "post-speech recording limit should not be consumed before the user starts talking",
+    )
+
+
 def main() -> int:
     test_intent_router()
     test_stateful_learning_mode()
@@ -323,6 +369,7 @@ def main() -> int:
     test_runtime_wake_then_follow_up()
     test_runtime_inline_wake_command()
     test_microphone_waits_for_real_speech()
+    test_microphone_waits_before_speech_without_shortening_recording()
     print("smoke_regression: ok")
     return 0
 
