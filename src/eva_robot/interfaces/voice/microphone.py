@@ -1,3 +1,6 @@
+from collections import deque
+import math
+
 import numpy as np
 import sounddevice as sd
 
@@ -12,6 +15,8 @@ class MicrophoneRecorder:
         silence_duration_seconds: float = 0.8,
         silence_threshold: float = 0.01,
         no_speech_timeout_seconds: float = 2.0,
+        speech_start_chunks: int = 3,
+        preroll_duration_seconds: float = 0.3,
     ) -> None:
         self._sample_rate = sample_rate
         # Keep RECORD_SECONDS as a compatibility fallback.
@@ -20,20 +25,31 @@ class MicrophoneRecorder:
         self._silence_duration_seconds = silence_duration_seconds
         self._silence_threshold = silence_threshold
         self._no_speech_timeout_seconds = no_speech_timeout_seconds
+        self._speech_start_chunks = max(1, speech_start_chunks)
+        self._preroll_duration_seconds = max(0.0, preroll_duration_seconds)
+
+    @staticmethod
+    def _chunk_level(chunk: np.ndarray) -> float:
+        if chunk.size == 0:
+            return 0.0
+        return float(np.sqrt(np.mean(np.square(chunk, dtype=np.float32))))
 
     def record(self) -> np.ndarray:
         chunk_seconds = 0.1
         frames_per_chunk = int(self._sample_rate * chunk_seconds)
-        min_chunks = max(1, int(self._min_record_seconds / chunk_seconds))
-        max_chunks = max(min_chunks, int(self._max_record_seconds / chunk_seconds))
+        min_chunks = max(1, math.ceil(self._min_record_seconds / chunk_seconds))
+        max_chunks = max(min_chunks, math.ceil(self._max_record_seconds / chunk_seconds))
         silence_chunks_required = max(
-            1, int(self._silence_duration_seconds / chunk_seconds)
+            1, math.ceil(self._silence_duration_seconds / chunk_seconds)
         )
-        no_speech_chunks = max(1, int(self._no_speech_timeout_seconds / chunk_seconds))
+        no_speech_chunks = max(1, math.ceil(self._no_speech_timeout_seconds / chunk_seconds))
+        preroll_chunks = max(1, math.ceil(self._preroll_duration_seconds / chunk_seconds))
 
         chunks: list[np.ndarray] = []
+        pending_chunks: deque[np.ndarray] = deque(maxlen=preroll_chunks)
         speech_started = False
         silence_chunks = 0
+        active_chunks = 0
 
         with sd.InputStream(
             samplerate=self._sample_rate,
@@ -44,18 +60,30 @@ class MicrophoneRecorder:
             for i in range(max_chunks):
                 data, _overflow = stream.read(frames_per_chunk)
                 chunk = data[:, 0].copy()
+                level = self._chunk_level(chunk)
+                is_active = level >= self._silence_threshold
+
+                if not speech_started:
+                    pending_chunks.append(chunk)
+                    if is_active:
+                        active_chunks += 1
+                        if active_chunks >= self._speech_start_chunks:
+                            speech_started = True
+                            chunks.extend(pending_chunks)
+                            pending_chunks.clear()
+                            silence_chunks = 0
+                    else:
+                        active_chunks = 0
+
+                    if not speech_started and i + 1 >= no_speech_chunks:
+                        break
+                    continue
+
                 chunks.append(chunk)
-
-                max_amp = float(np.max(np.abs(chunk))) if chunk.size else 0.0
-                if max_amp >= self._silence_threshold:
-                    speech_started = True
+                if is_active:
                     silence_chunks = 0
-                elif speech_started:
+                else:
                     silence_chunks += 1
-
-                # If nothing is spoken, return quickly so the main loop can continue.
-                if not speech_started and i + 1 >= no_speech_chunks:
-                    break
 
                 # Once user has spoken enough, stop after sustained silence.
                 if (

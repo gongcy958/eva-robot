@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 import sys
 
+import numpy as np
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -12,6 +14,8 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.eva_robot.application.use_cases.run_voice_turn import RunVoiceTurnUseCase
 from src.eva_robot.domain.intents import IntentRouter
 from src.eva_robot.infrastructure.llm.failover_client import FailoverLlmClient
+from src.eva_robot.interfaces.voice import microphone as microphone_module
+from src.eva_robot.interfaces.voice.microphone import MicrophoneRecorder
 from src.eva_robot.interfaces.voice.runtime import VoiceRuntime
 from src.eva_robot.shared.config import AppConfig
 from src.eva_robot.shared.preflight import PreflightFinding, StartupPreflight
@@ -74,8 +78,38 @@ class ScriptedVoiceTurn:
         self.handled.append(text)
 
 
+class FakeInputStream:
+    def __init__(self, chunks: list[np.ndarray], **_kwargs) -> None:
+        self._chunks = [chunk.astype(np.float32) for chunk in chunks]
+        self._index = 0
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        return None
+
+    def read(self, frames_per_chunk: int) -> tuple[np.ndarray, bool]:
+        if self._index >= len(self._chunks):
+            data = np.zeros((frames_per_chunk, 1), dtype=np.float32)
+            return data, False
+
+        chunk = self._chunks[self._index]
+        self._index += 1
+        if chunk.size != frames_per_chunk:
+            raise AssertionError(
+                f"expected chunk of size {frames_per_chunk}, got {chunk.size}"
+            )
+        return chunk.reshape(frames_per_chunk, 1), False
+
+
 def assert_equal(actual, expected, message: str) -> None:
     if actual != expected:
+        raise AssertionError(f"{message}: expected {expected!r}, got {actual!r}")
+
+
+def assert_allclose(actual, expected, message: str, atol: float = 1e-6) -> None:
+    if not np.allclose(actual, expected, atol=atol):
         raise AssertionError(f"{message}: expected {expected!r}, got {actual!r}")
 
 
@@ -241,6 +275,44 @@ def test_runtime_inline_wake_command() -> None:
     )
 
 
+def test_microphone_waits_for_real_speech() -> None:
+    chunks = [
+        np.array([0.0], dtype=np.float32),
+        np.array([0.6], dtype=np.float32),
+        np.array([0.0], dtype=np.float32),
+        np.array([0.0], dtype=np.float32),
+        np.array([0.6], dtype=np.float32),
+        np.array([0.6], dtype=np.float32),
+        np.array([0.6], dtype=np.float32),
+        np.array([0.0], dtype=np.float32),
+        np.array([0.0], dtype=np.float32),
+    ]
+    original_input_stream = microphone_module.sd.InputStream
+    microphone_module.sd.InputStream = lambda **kwargs: FakeInputStream(chunks, **kwargs)
+    try:
+        recorder = MicrophoneRecorder(
+            sample_rate=10,
+            record_seconds=3,
+            min_record_seconds=0.1,
+            max_record_seconds=1.0,
+            silence_duration_seconds=0.2,
+            silence_threshold=0.5,
+            no_speech_timeout_seconds=1.0,
+            speech_start_chunks=3,
+            preroll_duration_seconds=0.3,
+        )
+        recorded = recorder.record()
+    finally:
+        microphone_module.sd.InputStream = original_input_stream
+
+    assert_equal(recorded.size, 5, "recorder should ignore single noise spikes before speech")
+    assert_allclose(
+        recorded.tolist(),
+        [0.6, 0.6, 0.6, 0.0, 0.0],
+        "recorder should start near actual speech and keep trailing silence",
+    )
+
+
 def main() -> int:
     test_intent_router()
     test_stateful_learning_mode()
@@ -250,6 +322,7 @@ def main() -> int:
     test_preflight_returns_ollama_when_remote_fails()
     test_runtime_wake_then_follow_up()
     test_runtime_inline_wake_command()
+    test_microphone_waits_for_real_speech()
     print("smoke_regression: ok")
     return 0
 

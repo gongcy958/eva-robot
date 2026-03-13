@@ -129,6 +129,8 @@ export MAX_RECORD_SECONDS="12.0"
 export SILENCE_DURATION_SECONDS="0.8"
 export SILENCE_THRESHOLD="0.01"
 export NO_SPEECH_TIMEOUT_SECONDS="2.0"
+export SPEECH_START_CHUNKS="3"
+export PREROLL_DURATION_SECONDS="0.3"
 export ASR_VAD_FILTER="true"
 export ASR_BEAM_SIZE="5"
 export ASR_TEMPERATURE="0.0"
@@ -144,6 +146,11 @@ export WAKE_TIMEOUT_SECONDS="60"
 ```
 
 If your wake or sleep phrases include Chinese, keep `ASR_LANGUAGE="auto"` so Whisper can auto-detect instead of forcing English-only transcription.
+
+If follow-up listening starts too early because of ambient noise, try increasing
+`SPEECH_START_CHUNKS` or `SILENCE_THRESHOLD`. `PREROLL_DURATION_SECONDS` keeps a
+small amount of audio before speech detection so the first syllable is less
+likely to be clipped.
 
 Provider selection:
 

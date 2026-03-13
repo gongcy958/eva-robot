@@ -84,6 +84,8 @@ class AppConfig:
     silence_duration_seconds: float = float(os.getenv("SILENCE_DURATION_SECONDS", "0.8"))
     silence_threshold: float = float(os.getenv("SILENCE_THRESHOLD", "0.01"))
     no_speech_timeout_seconds: float = float(os.getenv("NO_SPEECH_TIMEOUT_SECONDS", "2.0"))
+    speech_start_chunks: int = int(os.getenv("SPEECH_START_CHUNKS", "3"))
+    preroll_duration_seconds: float = float(os.getenv("PREROLL_DURATION_SECONDS", "0.3"))
     asr_vad_filter: bool = _env_bool("ASR_VAD_FILTER", True)
     asr_beam_size: int = int(os.getenv("ASR_BEAM_SIZE", "5"))
     asr_temperature: float = float(os.getenv("ASR_TEMPERATURE", "0.0"))
