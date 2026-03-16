@@ -182,6 +182,21 @@ def test_intent_router() -> None:
         "word_explain",
         "word explain intent",
     )
+    assert_equal(
+        router.route("Give me an example sentence with vivid"),
+        "word_explain",
+        "example sentence requests should map to learning intent",
+    )
+    assert_equal(
+        router.route("Tell me what specific means"),
+        "word_explain",
+        "meaning requests should catch natural spoken phrasing",
+    )
+    assert_equal(
+        router.route("Check my sentence: I very like it."),
+        "sentence_fix",
+        "sentence check phrasing should route to correction",
+    )
 
 
 def test_stateful_learning_mode() -> None:
