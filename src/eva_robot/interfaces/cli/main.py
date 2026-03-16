@@ -154,6 +154,7 @@ def main() -> None:
         sleep_command=config.sleep_command,
         sleep_ack_message=config.sleep_ack_message,
         wake_timeout_seconds=config.wake_timeout_seconds,
+        followup_cooldown_seconds=config.followup_cooldown_seconds,
         logger=logger,
     )
     runtime.run()

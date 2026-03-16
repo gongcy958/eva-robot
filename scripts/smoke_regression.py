@@ -15,6 +15,7 @@ from src.eva_robot.application.use_cases.run_voice_turn import RunVoiceTurnUseCa
 from src.eva_robot.domain.intents import IntentRouter
 from src.eva_robot.infrastructure.llm.failover_client import FailoverLlmClient
 from src.eva_robot.interfaces.voice import microphone as microphone_module
+from src.eva_robot.interfaces.voice import runtime as runtime_module
 from src.eva_robot.interfaces.voice.microphone import MicrophoneRecorder
 from src.eva_robot.interfaces.voice.runtime import VoiceRuntime
 from src.eva_robot.shared.config import AppConfig
@@ -65,6 +66,7 @@ class ScriptedVoiceTurn:
     heard: list[str]
     spoken: list[str]
     handled: list[str]
+    recent_tts_elapsed: list[float | None] | None = None
 
     def listen_once(
         self,
@@ -80,6 +82,11 @@ class ScriptedVoiceTurn:
 
     def handle_text(self, text: str) -> None:
         self.handled.append(text)
+
+    def seconds_since_last_tts(self) -> float | None:
+        if not self.recent_tts_elapsed:
+            return None
+        return self.recent_tts_elapsed.pop(0)
 
 
 class FakeInputStream:
@@ -328,6 +335,35 @@ def test_runtime_repeated_wake_words_are_fully_stripped() -> None:
     )
 
 
+def test_runtime_waits_for_recent_tts_before_listening() -> None:
+    original_sleep = runtime_module.time.sleep
+    sleep_calls: list[float] = []
+    runtime_module.time.sleep = sleep_calls.append
+    try:
+        turn = ScriptedVoiceTurn(
+            heard=["hello"],
+            spoken=[],
+            handled=[],
+            recent_tts_elapsed=[None, 0.0],
+        )
+        runtime = VoiceRuntime(
+            run_voice_turn=turn,
+            wake_word="hello",
+            wake_ack_message="I'm here.",
+            sleep_command="goodbye",
+            sleep_ack_message="Going idle.",
+            wake_timeout_seconds=60,
+            followup_cooldown_seconds=0.6,
+        )
+
+        runtime.run()
+    finally:
+        runtime_module.time.sleep = original_sleep
+
+    assert_equal(len(sleep_calls), 1, "runtime should wait once for recent TTS")
+    assert_equal(round(sleep_calls[0], 1), 0.6, "runtime should wait the remaining cooldown")
+
+
 def test_microphone_waits_for_real_speech() -> None:
     chunks = [
         np.array([0.0], dtype=np.float32),
@@ -419,6 +455,7 @@ def main() -> int:
     test_runtime_inline_wake_command()
     test_runtime_repeated_wake_words_do_not_become_command()
     test_runtime_repeated_wake_words_are_fully_stripped()
+    test_runtime_waits_for_recent_tts_before_listening()
     test_microphone_waits_for_real_speech()
     test_microphone_waits_before_speech_without_shortening_recording()
     print("smoke_regression: ok")

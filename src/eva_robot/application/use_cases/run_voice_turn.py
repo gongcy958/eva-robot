@@ -124,6 +124,7 @@ class RunVoiceTurnUseCase:
         self._active_learning_mode: LearningMode | None = None
         self._active_family_scene: FamilyScene | None = None
         self._logger = logger or StructuredLogger()
+        self._last_tts_completed_at: float | None = None
 
     def _build_prompt(self, base_prompt: str) -> str:
         prompt_parts = [base_prompt.strip()]
@@ -577,6 +578,7 @@ class RunVoiceTurnUseCase:
 
         try:
             self._tts.speak(feedback)
+            self._last_tts_completed_at = time.monotonic()
             self._logger.info(
                 "tts.feedback_completed",
                 text_length=len(feedback),
@@ -586,6 +588,11 @@ class RunVoiceTurnUseCase:
                 "tts.feedback_failed",
                 error=str(exc),
             )
+
+    def seconds_since_last_tts(self) -> float | None:
+        if self._last_tts_completed_at is None:
+            return None
+        return max(0.0, time.monotonic() - self._last_tts_completed_at)
 
     def _transcribe(self, audio: np.ndarray) -> AsrTranscription | None:
         last_error: Exception | None = None
@@ -797,6 +804,7 @@ class RunVoiceTurnUseCase:
         tts_started_at = time.perf_counter()
         try:
             self._tts.speak(spoken_response)
+            self._last_tts_completed_at = time.monotonic()
             tts_duration_ms = round((time.perf_counter() - tts_started_at) * 1000, 2)
             self._logger.info(
                 "tts.speak_completed",

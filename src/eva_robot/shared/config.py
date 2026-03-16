@@ -113,6 +113,7 @@ class AppConfig:
     sleep_command: str = os.getenv("SLEEP_COMMAND", "退下吧")
     sleep_ack_message: str = os.getenv("SLEEP_ACK_MESSAGE", "好的，我先待命。")
     wake_timeout_seconds: int = int(os.getenv("WAKE_TIMEOUT_SECONDS", "60"))
+    followup_cooldown_seconds: float = float(os.getenv("FOLLOWUP_COOLDOWN_SECONDS", "0.6"))
 
     def resolved_llm_provider(self) -> str:
         return self.llm_provider.strip().lower()

@@ -14,6 +14,7 @@ class VoiceRuntime:
         sleep_command: str,
         sleep_ack_message: str,
         wake_timeout_seconds: int,
+        followup_cooldown_seconds: float = 0.6,
         logger: StructuredLogger | None = None,
     ) -> None:
         self._run_voice_turn = run_voice_turn
@@ -22,6 +23,7 @@ class VoiceRuntime:
         self._sleep_command = sleep_command.strip()
         self._sleep_ack_message = sleep_ack_message.strip()
         self._wake_timeout_seconds = wake_timeout_seconds
+        self._followup_cooldown_seconds = max(0.0, followup_cooldown_seconds)
         self._is_awake = False
         self._last_active_at = 0.0
         self._logger = logger or StructuredLogger()
@@ -83,6 +85,24 @@ class VoiceRuntime:
             return 0.0
         return max(0.1, self._wake_timeout_seconds - (time.time() - self._last_active_at))
 
+    def _wait_for_tts_cooldown(self) -> None:
+        if self._followup_cooldown_seconds <= 0:
+            return
+
+        if not hasattr(self._run_voice_turn, "seconds_since_last_tts"):
+            return
+
+        elapsed = self._run_voice_turn.seconds_since_last_tts()
+        if elapsed is None or elapsed >= self._followup_cooldown_seconds:
+            return
+
+        remaining = round(self._followup_cooldown_seconds - elapsed, 3)
+        self._logger.info(
+            "runtime.mic_cooldown_waited",
+            wait_seconds=remaining,
+        )
+        time.sleep(remaining)
+
     def run(self) -> None:
         print("=== Family English Robot Stable MVP ===")
         print(
@@ -108,6 +128,7 @@ class VoiceRuntime:
                     self._run_voice_turn.speak_feedback(self._sleep_ack_message)
                     self._set_sleeping()
 
+                self._wait_for_tts_cooldown()
                 wait_timeout_seconds = (
                     self._remaining_awake_seconds() if self._is_awake else None
                 )
