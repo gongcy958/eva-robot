@@ -279,6 +279,55 @@ def test_runtime_inline_wake_command() -> None:
     )
 
 
+def test_runtime_repeated_wake_words_do_not_become_command() -> None:
+    turn = ScriptedVoiceTurn(
+        heard=["hello hello"],
+        spoken=[],
+        handled=[],
+    )
+    runtime = VoiceRuntime(
+        run_voice_turn=turn,
+        wake_word="hello",
+        wake_ack_message="I'm here.",
+        sleep_command="goodbye",
+        sleep_ack_message="Going idle.",
+        wake_timeout_seconds=60,
+    )
+
+    runtime.run()
+
+    assert_equal(turn.spoken[0], "I'm here.", "repeated wake should still speak ack")
+    assert_equal(
+        turn.handled,
+        [],
+        "repeated wake words without a command should stay in follow-up mode",
+    )
+
+
+def test_runtime_repeated_wake_words_are_fully_stripped() -> None:
+    turn = ScriptedVoiceTurn(
+        heard=["hello hello translate this"],
+        spoken=[],
+        handled=[],
+    )
+    runtime = VoiceRuntime(
+        run_voice_turn=turn,
+        wake_word="hello",
+        wake_ack_message="I'm here.",
+        sleep_command="goodbye",
+        sleep_ack_message="Going idle.",
+        wake_timeout_seconds=60,
+    )
+
+    runtime.run()
+
+    assert_equal(
+        turn.handled,
+        ["translate this"],
+        "all repeated wake words should be stripped before handling the command",
+    )
+
+
 def test_microphone_waits_for_real_speech() -> None:
     chunks = [
         np.array([0.0], dtype=np.float32),
@@ -368,6 +417,8 @@ def main() -> int:
     test_preflight_returns_ollama_when_remote_fails()
     test_runtime_wake_then_follow_up()
     test_runtime_inline_wake_command()
+    test_runtime_repeated_wake_words_do_not_become_command()
+    test_runtime_repeated_wake_words_are_fully_stripped()
     test_microphone_waits_for_real_speech()
     test_microphone_waits_before_speech_without_shortening_recording()
     print("smoke_regression: ok")

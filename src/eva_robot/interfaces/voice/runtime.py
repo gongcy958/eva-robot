@@ -47,8 +47,16 @@ class VoiceRuntime:
         )
         return pattern.sub("", text, count=1).strip()
 
+    def _strip_leading_phrase_repetitions(self, text: str, phrase: str) -> str:
+        stripped = text.strip()
+        while True:
+            updated = self._strip_prefix_phrase(stripped, phrase)
+            if updated == stripped:
+                return stripped
+            stripped = updated
+
     def _extract_inline_command(self, text: str, phrase: str) -> str | None:
-        stripped = self._strip_prefix_phrase(text, phrase)
+        stripped = self._strip_leading_phrase_repetitions(text, phrase)
         if stripped and stripped != text.strip():
             return stripped
         return None
@@ -141,14 +149,17 @@ class VoiceRuntime:
                         self._logger.info("runtime.sleeping_ignored", text=text)
                     continue
 
-                awake_text = self._extract_inline_command(text, self._wake_word) or text
-                awake_text = awake_text.strip()
+                awake_text = text.strip()
                 if self._contains(text, self._wake_word):
-                    wake_remainder = self._strip_prefix_phrase(text, self._wake_word)
+                    wake_remainder = self._strip_leading_phrase_repetitions(
+                        text,
+                        self._wake_word,
+                    )
                     if not wake_remainder:
                         self._logger.info("runtime.wake_word_while_awake", text=text)
                         self._announce_followup_listening()
                         continue
+                    awake_text = wake_remainder
 
                 if not awake_text:
                     self._logger.info("runtime.empty_followup_ignored", text=text)
