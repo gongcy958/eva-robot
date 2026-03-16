@@ -106,6 +106,9 @@ class RunVoiceTurnUseCase:
         asr_min_avg_logprob: float = -1.2,
         asr_max_no_speech_prob: float = 0.7,
         asr_low_confidence_message: str = "Sorry, I didn't catch that clearly. Please say it again.",
+        asr_second_pass_language: str | None = None,
+        asr_second_pass_min_language_probability: float = 0.65,
+        asr_second_pass_disable_vad: bool = True,
         logger: StructuredLogger | None = None,
     ) -> None:
         self._recorder = recorder
@@ -121,6 +124,16 @@ class RunVoiceTurnUseCase:
         self._asr_min_avg_logprob = asr_min_avg_logprob
         self._asr_max_no_speech_prob = asr_max_no_speech_prob
         self._asr_low_confidence_message = asr_low_confidence_message
+        self._asr_second_pass_language = (
+            asr_second_pass_language.strip().lower()
+            if asr_second_pass_language
+            else None
+        )
+        self._asr_second_pass_min_language_probability = max(
+            0.0,
+            min(1.0, asr_second_pass_min_language_probability),
+        )
+        self._asr_second_pass_disable_vad = asr_second_pass_disable_vad
         self._active_learning_mode: LearningMode | None = None
         self._active_family_scene: FamilyScene | None = None
         self._logger = logger or StructuredLogger()
@@ -599,10 +612,7 @@ class RunVoiceTurnUseCase:
         for attempt in range(1, self._asr_retries + 1):
             started_at = time.perf_counter()
             try:
-                if hasattr(self._asr, "transcribe_with_details"):
-                    result = self._asr.transcribe_with_details(audio)
-                else:
-                    result = AsrTranscription(text=self._asr.transcribe(audio))
+                result = self._transcribe_once(audio)
                 duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
                 self._logger.info(
                     "asr.transcribe_completed",
@@ -632,6 +642,132 @@ class RunVoiceTurnUseCase:
                 f"{self._asr_retries} attempts: {last_error}"
             )
         return None
+
+    def _transcribe_once(self, audio: np.ndarray) -> AsrTranscription:
+        if hasattr(self._asr, "transcribe_with_details"):
+            primary = self._asr.transcribe_with_details(audio)
+        else:
+            primary = AsrTranscription(text=self._asr.transcribe(audio))
+
+        return self._maybe_run_second_pass(audio, primary)
+
+    def _maybe_run_second_pass(
+        self,
+        audio: np.ndarray,
+        primary: AsrTranscription,
+    ) -> AsrTranscription:
+        if not hasattr(self._asr, "transcribe_with_overrides"):
+            return primary
+
+        if not self._should_run_second_pass(primary):
+            return primary
+
+        override_language = self._asr_second_pass_language
+        override_vad = False if self._asr_second_pass_disable_vad else None
+
+        second_pass_started_at = time.perf_counter()
+        secondary = self._asr.transcribe_with_overrides(
+            audio,
+            language=override_language,
+            vad_filter=override_vad,
+        )
+        self._logger.info(
+            "asr.second_pass_completed",
+            duration_ms=round((time.perf_counter() - second_pass_started_at) * 1000, 2),
+            primary_transcript=primary.text,
+            secondary_transcript=secondary.text,
+            forced_language=override_language,
+            vad_filter=override_vad,
+            primary_language=primary.language,
+            secondary_language=secondary.language,
+            primary_language_probability=primary.language_probability,
+            secondary_language_probability=secondary.language_probability,
+        )
+
+        selected, selected_stage = self._select_better_transcription(primary, secondary)
+        self._logger.info(
+            "asr.second_pass_selected",
+            selected_stage=selected_stage,
+            transcript=selected.text,
+        )
+        return selected
+
+    def _should_run_second_pass(self, transcription: AsrTranscription) -> bool:
+        if self._is_low_confidence_transcription(transcription):
+            return True
+
+        if not self._asr_second_pass_disable_vad and not self._asr_second_pass_language:
+            return False
+
+        if not self._asr_second_pass_language:
+            return False
+
+        language_probability = transcription.language_probability
+        if language_probability is None:
+            return False
+
+        if language_probability >= self._asr_second_pass_min_language_probability:
+            return False
+
+        detected_language = (transcription.language or "").strip().lower()
+        return detected_language != self._asr_second_pass_language
+
+    def _select_better_transcription(
+        self,
+        primary: AsrTranscription,
+        secondary: AsrTranscription,
+    ) -> tuple[AsrTranscription, str]:
+        primary_text = primary.text.strip()
+        secondary_text = secondary.text.strip()
+        primary_low = self._is_low_confidence_transcription(primary)
+        secondary_low = self._is_low_confidence_transcription(secondary)
+
+        if not secondary_text:
+            return primary, "primary"
+
+        if not primary_text:
+            return secondary, "secondary"
+
+        if primary_low and not secondary_low:
+            return secondary, "secondary"
+
+        if secondary_low and not primary_low:
+            return primary, "primary"
+
+        primary_score = self._transcription_score(primary)
+        secondary_score = self._transcription_score(secondary)
+        if secondary_score > primary_score + 0.05:
+            return secondary, "secondary"
+
+        if (
+            self._asr_second_pass_language
+            and (secondary.language or "").strip().lower() == self._asr_second_pass_language
+            and (
+                primary.language_probability is not None
+                and primary.language_probability < self._asr_second_pass_min_language_probability
+            )
+        ):
+            return secondary, "secondary"
+
+        return primary, "primary"
+
+    @staticmethod
+    def _transcription_score(transcription: AsrTranscription) -> float:
+        score = 0.0
+
+        if transcription.text.strip():
+            score += 1.0
+
+        if transcription.avg_logprob is not None:
+            score += transcription.avg_logprob
+
+        if transcription.no_speech_prob is not None:
+            score -= transcription.no_speech_prob
+
+        if transcription.language_probability is not None:
+            score += transcription.language_probability * 0.2
+
+        return score
 
     def _is_low_confidence_transcription(self, transcription: AsrTranscription) -> bool:
         if not transcription.text.strip():

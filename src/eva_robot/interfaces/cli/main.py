@@ -145,6 +145,11 @@ def main() -> None:
         asr_min_avg_logprob=config.asr_min_avg_logprob,
         asr_max_no_speech_prob=config.asr_max_no_speech_prob,
         asr_low_confidence_message=config.asr_low_confidence_message,
+        asr_second_pass_language=config.asr_second_pass_language,
+        asr_second_pass_min_language_probability=(
+            config.asr_second_pass_min_language_probability
+        ),
+        asr_second_pass_disable_vad=config.asr_second_pass_disable_vad,
         logger=logger,
     )
     runtime = VoiceRuntime(

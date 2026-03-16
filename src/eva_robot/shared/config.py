@@ -94,6 +94,11 @@ class AppConfig:
     asr_low_confidence_message: str = os.getenv(
         "ASR_LOW_CONFIDENCE_MESSAGE", "抱歉，我没太听清，请再说一遍。"
     )
+    asr_second_pass_language: str | None = _env_optional_str("ASR_SECOND_PASS_LANGUAGE")
+    asr_second_pass_min_language_probability: float = float(
+        os.getenv("ASR_SECOND_PASS_MIN_LANGUAGE_PROBABILITY", "0.65")
+    )
+    asr_second_pass_disable_vad: bool = _env_bool("ASR_SECOND_PASS_DISABLE_VAD", True)
     llm_provider: str = os.getenv("LLM_PROVIDER", "openai_compatible")
     llm_profile: str = os.getenv("LLM_PROFILE", "default")
     llm_base_url: str = os.getenv("LLM_BASE_URL", "https://gmncode.cn")

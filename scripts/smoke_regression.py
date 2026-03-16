@@ -12,6 +12,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.eva_robot.application.use_cases.run_voice_turn import RunVoiceTurnUseCase
+from src.eva_robot.application.services.ports import AsrTranscription
 from src.eva_robot.domain.intents import IntentRouter
 from src.eva_robot.infrastructure.llm.failover_client import FailoverLlmClient
 from src.eva_robot.interfaces.voice import microphone as microphone_module
@@ -30,6 +31,32 @@ class DummyRecorder:
 class DummyAsr:
     def transcribe(self, audio):
         return ""
+
+
+@dataclass
+class AudioRecorderOnce:
+    audio: np.ndarray
+
+    def record(self, wait_timeout_seconds=None, max_record_seconds=None):
+        return self.audio
+
+
+@dataclass
+class SequencedAsr:
+    primary: AsrTranscription
+    secondary: AsrTranscription
+    calls: list[tuple[str, str | None, bool | None]]
+
+    def transcribe(self, audio):
+        return self.primary.text
+
+    def transcribe_with_details(self, audio):
+        self.calls.append(("primary", None, None))
+        return self.primary
+
+    def transcribe_with_overrides(self, audio, *, language=None, vad_filter=None):
+        self.calls.append(("secondary", language, vad_filter))
+        return self.secondary
 
 
 @dataclass
@@ -364,6 +391,50 @@ def test_runtime_waits_for_recent_tts_before_listening() -> None:
     assert_equal(round(sleep_calls[0], 1), 0.6, "runtime should wait the remaining cooldown")
 
 
+def test_asr_second_pass_prefers_forced_language_result() -> None:
+    asr = SequencedAsr(
+        primary=AsrTranscription(
+            text="Tell me what's mean specific?",
+            avg_logprob=-0.52,
+            no_speech_prob=0.07,
+            language="zh",
+            language_probability=0.47,
+        ),
+        secondary=AsrTranscription(
+            text="Tell me what specific means?",
+            avg_logprob=-0.22,
+            no_speech_prob=0.03,
+            language="en",
+            language_probability=0.92,
+        ),
+        calls=[],
+    )
+    use_case = RunVoiceTurnUseCase(
+        recorder=AudioRecorderOnce(audio=np.array([0.1, 0.2], dtype=np.float32)),
+        asr=asr,
+        router=IntentRouter(),
+        llm=CapturingLlm(calls=[]),
+        tts=DummyTts(spoken=[]),
+        record_seconds=3,
+        asr_second_pass_language="en",
+        asr_second_pass_min_language_probability=0.65,
+        asr_second_pass_disable_vad=True,
+    )
+
+    text = use_case.listen_once()
+
+    assert_equal(
+        text,
+        "Tell me what specific means?",
+        "second ASR pass should replace a weak auto-detected transcript",
+    )
+    assert_equal(
+        asr.calls,
+        [("primary", None, None), ("secondary", "en", False)],
+        "second pass should force the configured language and disable VAD",
+    )
+
+
 def test_microphone_waits_for_real_speech() -> None:
     chunks = [
         np.array([0.0], dtype=np.float32),
@@ -456,6 +527,7 @@ def main() -> int:
     test_runtime_repeated_wake_words_do_not_become_command()
     test_runtime_repeated_wake_words_are_fully_stripped()
     test_runtime_waits_for_recent_tts_before_listening()
+    test_asr_second_pass_prefers_forced_language_result()
     test_microphone_waits_for_real_speech()
     test_microphone_waits_before_speech_without_shortening_recording()
     print("smoke_regression: ok")
