@@ -6,12 +6,16 @@
 
 An extensible Python robot assistant focused on conversation, command execution, and automation workflows.
 
+Language: English | [简体中文](README.zh-CN.md)
+
 ## Table of Contents
 
 - [Overview](#overview)
 - [Features](#features)
 - [Project Structure](#project-structure)
 - [Getting Started](#getting-started)
+- [Quick Start](#quick-start)
+- [5-Minute Setup](#5-minute-setup)
 - [Usage](#usage)
 - [Configuration](#configuration)
 - [Roadmap](#roadmap)
@@ -73,6 +77,182 @@ source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+## Quick Start
+
+After cloning the repo, the fastest way to get Eva running locally is:
+
+```bash
+cp .env.example .env.local
+```
+
+Then choose **one** of the following startup modes.
+
+## 5-Minute Setup
+
+If you just want to get Eva running as quickly as possible, use one of the
+copy-paste setups below.
+
+### Fastest local setup with Ollama
+
+```bash
+cp .env.example .env.local
+ollama pull qwen2.5:7b-instruct
+```
+
+Put this in `.env.local`:
+
+```bash
+LLM_PROVIDER=ollama
+OLLAMA_URL=http://127.0.0.1:11434/api/generate
+OLLAMA_MODEL=qwen2.5:7b-instruct
+
+WHISPER_MODEL_PATH=small
+WHISPER_DEVICE=cpu
+WHISPER_COMPUTE_TYPE=int8
+ASR_LANGUAGE=auto
+```
+
+Then run:
+
+```bash
+python -m src.eva_robot.main
+```
+
+### Fastest remote setup
+
+Put this in `.env.local`:
+
+```bash
+LLM_PROVIDER=openai_compatible
+LLM_BASE_URL=https://your-openai-compatible-endpoint.example.com/v1
+LLM_API_KEY=sk-your_api_key_here
+LLM_MODEL=gpt-4o-mini
+
+WHISPER_MODEL_PATH=small
+WHISPER_DEVICE=cpu
+WHISPER_COMPUTE_TYPE=int8
+ASR_LANGUAGE=auto
+```
+
+Then run:
+
+```bash
+python -m src.eva_robot.main
+```
+
+If you also want local fallback, keep the remote setup above and add:
+
+```bash
+OLLAMA_URL=http://127.0.0.1:11434/api/generate
+OLLAMA_MODEL=qwen2.5:7b-instruct
+```
+
+### Option A: Remote OpenAI-compatible model
+
+Use this when you have a remote provider that exposes OpenAI-compatible
+`/models` and `/responses` endpoints.
+
+Edit `.env.local` like this:
+
+```bash
+LLM_PROVIDER=openai_compatible
+LLM_BASE_URL=https://your-openai-compatible-endpoint.example.com/v1
+LLM_API_KEY=sk-your_api_key_here
+LLM_MODEL=gpt-4o-mini
+
+WHISPER_MODEL_PATH=small
+WHISPER_DEVICE=cpu
+WHISPER_COMPUTE_TYPE=int8
+ASR_LANGUAGE=auto
+```
+
+Notes:
+
+- `LLM_BASE_URL` should be the base URL your provider gives you. If your
+  provider says the base URL is already `/v1`, keep it as-is.
+- `LLM_API_KEY` is required for `LLM_PROVIDER=openai_compatible`.
+- `LLM_MODEL` is optional but recommended so startup uses the exact remote
+  model you expect.
+- `WHISPER_MODEL_PATH` can be a local filesystem path, or a named
+  faster-whisper model such as `small`, `medium`, or `large-v3`.
+
+### Option B: Local Ollama model only
+
+Use this when you want everything local except ASR/TTS dependencies.
+
+First make sure Ollama is installed and running, then pull a model:
+
+```bash
+ollama pull qwen2.5:7b-instruct
+```
+
+Set `.env.local` like this:
+
+```bash
+LLM_PROVIDER=ollama
+OLLAMA_URL=http://127.0.0.1:11434/api/generate
+OLLAMA_MODEL=qwen2.5:7b-instruct
+
+WHISPER_MODEL_PATH=small
+WHISPER_DEVICE=cpu
+WHISPER_COMPUTE_TYPE=int8
+ASR_LANGUAGE=auto
+```
+
+Notes:
+
+- Eva expects the Ollama generate endpoint by default:
+  `http://127.0.0.1:11434/api/generate`
+- `OLLAMA_MODEL` must exist locally, otherwise startup preflight will fail.
+
+### Option C: Remote primary + local Ollama fallback
+
+This is the most practical setup for day-to-day use: prefer a remote model, but
+keep Ollama ready when the remote API is unavailable.
+
+```bash
+LLM_PROVIDER=openai_compatible
+LLM_BASE_URL=https://your-openai-compatible-endpoint.example.com/v1
+LLM_API_KEY=sk-your_api_key_here
+LLM_MODEL=gpt-4o-mini
+
+OLLAMA_URL=http://127.0.0.1:11434/api/generate
+OLLAMA_MODEL=qwen2.5:7b-instruct
+
+WHISPER_MODEL_PATH=small
+WHISPER_DEVICE=cpu
+WHISPER_COMPUTE_TYPE=int8
+ASR_LANGUAGE=auto
+```
+
+When `LLM_PROVIDER=openai_compatible`, Eva will automatically fall back to the
+local Ollama model for the current session if remote preflight or runtime
+requests fail and Ollama is healthy.
+
+### Minimum startup checklist
+
+Before running Eva, make sure all of these are true:
+
+- Python dependencies are installed with `pip install -r requirements.txt`
+- `.env.local` exists and has the LLM settings you want
+- `WHISPER_MODEL_PATH` points to a valid local model path or a valid named model
+- Your terminal/IDE has microphone permission
+- If using Ollama, the Ollama app or server is running
+
+### Run Eva
+
+Main package entry:
+
+```bash
+python -m src.eva_robot.main
+```
+
+Compatibility script:
+
+```bash
+python home_english_robot_stable.py
+```
+
 ## Usage
 
 Run the application:
@@ -95,14 +275,36 @@ Prerequisites:
 - Whisper model files are available locally (default path is shown below)
 - Microphone permission is granted to your terminal/IDE
 
-Configuration is loaded from environment variables and from local `.env` / `.env.local`
-files if present. Copy `.env.example` to `.env.local` for a safe local setup:
+Configuration is loaded from environment variables and from local `.env` /
+`.env.local` files if present. Copy `.env.example` to `.env.local` for a safe
+local setup:
 
 ```bash
 cp .env.example .env.local
 ```
 
-Key variables:
+For a quick first run, the **minimum** variables you usually need are:
+
+```bash
+# Remote model
+LLM_PROVIDER=openai_compatible
+LLM_BASE_URL=https://your-openai-compatible-endpoint.example.com/v1
+LLM_API_KEY=sk-your_api_key_here
+LLM_MODEL=gpt-4o-mini
+
+# OR local Ollama
+LLM_PROVIDER=ollama
+OLLAMA_URL=http://127.0.0.1:11434/api/generate
+OLLAMA_MODEL=qwen2.5:7b-instruct
+
+# ASR
+WHISPER_MODEL_PATH=small
+WHISPER_DEVICE=cpu
+WHISPER_COMPUTE_TYPE=int8
+ASR_LANGUAGE=auto
+```
+
+Full environment variables:
 
 ```bash
 export LLM_PROVIDER="openai_compatible"
