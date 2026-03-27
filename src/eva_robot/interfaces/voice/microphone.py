@@ -17,6 +17,9 @@ class MicrophoneRecorder:
         no_speech_timeout_seconds: float = 2.0,
         speech_start_chunks: int = 3,
         preroll_duration_seconds: float = 0.3,
+        ambient_noise_seconds: float = 0.4,
+        speech_start_threshold_multiplier: float = 2.2,
+        speech_end_threshold_multiplier: float = 1.6,
     ) -> None:
         self._sample_rate = sample_rate
         # Keep RECORD_SECONDS as a compatibility fallback.
@@ -27,12 +30,52 @@ class MicrophoneRecorder:
         self._no_speech_timeout_seconds = no_speech_timeout_seconds
         self._speech_start_chunks = max(1, speech_start_chunks)
         self._preroll_duration_seconds = max(0.0, preroll_duration_seconds)
+        self._ambient_noise_seconds = max(0.0, ambient_noise_seconds)
+        self._speech_start_threshold_multiplier = max(
+            1.0, speech_start_threshold_multiplier
+        )
+        self._speech_end_threshold_multiplier = max(
+            1.0,
+            min(
+                self._speech_start_threshold_multiplier,
+                speech_end_threshold_multiplier,
+            ),
+        )
 
     @staticmethod
     def _chunk_level(chunk: np.ndarray) -> float:
         if chunk.size == 0:
             return 0.0
         return float(np.sqrt(np.mean(np.square(chunk, dtype=np.float32))))
+
+    @staticmethod
+    def _ambient_level(levels: deque[float]) -> float:
+        if not levels:
+            return 0.0
+        return float(np.percentile(np.asarray(levels, dtype=np.float32), 80))
+
+    def _resolve_thresholds(self, ambient_level: float) -> tuple[float, float]:
+        start_threshold = max(
+            self._silence_threshold,
+            ambient_level * self._speech_start_threshold_multiplier,
+        )
+        end_threshold = max(
+            self._silence_threshold,
+            ambient_level * self._speech_end_threshold_multiplier,
+        )
+        return start_threshold, min(start_threshold, end_threshold)
+
+    def _bootstrap_ambient_level(
+        self,
+        level: float,
+        ambient_level: float,
+    ) -> bool:
+        bootstrap_threshold = max(
+            self._silence_threshold * 6,
+            ambient_level * self._speech_start_threshold_multiplier,
+        )
+        bootstrap_threshold = min(0.12, bootstrap_threshold)
+        return level <= bootstrap_threshold
 
     def record(
         self,
@@ -56,12 +99,19 @@ class MicrophoneRecorder:
             ),
         )
         preroll_chunks = max(1, math.ceil(self._preroll_duration_seconds / chunk_seconds))
+        ambient_chunks = (
+            max(1, math.ceil(self._ambient_noise_seconds / chunk_seconds))
+            if self._ambient_noise_seconds > 0
+            else 0
+        )
 
         chunks: list[np.ndarray] = []
         pending_chunks: deque[np.ndarray] = deque(maxlen=preroll_chunks)
+        ambient_levels: deque[float] = deque(maxlen=ambient_chunks)
         speech_started = False
         silence_chunks = 0
         active_chunks = 0
+        speech_end_threshold = self._silence_threshold
 
         with sd.InputStream(
             samplerate=self._sample_rate,
@@ -73,14 +123,28 @@ class MicrophoneRecorder:
                 data, _overflow = stream.read(frames_per_chunk)
                 chunk = data[:, 0].copy()
                 level = self._chunk_level(chunk)
-                is_active = level >= self._silence_threshold
 
                 if not speech_started:
+                    ambient_level = self._ambient_level(ambient_levels)
+                    bootstrapped_ambient = False
+                    if ambient_chunks and self._bootstrap_ambient_level(
+                        level, ambient_level
+                    ):
+                        ambient_levels.append(level)
+                        ambient_level = self._ambient_level(ambient_levels)
+                        bootstrapped_ambient = True
+                    speech_start_threshold, speech_end_threshold_candidate = (
+                        self._resolve_thresholds(ambient_level)
+                    )
+                    is_active = level >= speech_start_threshold
                     pending_chunks.append(chunk)
+                    if not is_active and ambient_chunks and not bootstrapped_ambient:
+                        ambient_levels.append(level)
                     if is_active:
                         active_chunks += 1
                         if active_chunks >= self._speech_start_chunks:
                             speech_started = True
+                            speech_end_threshold = speech_end_threshold_candidate
                             chunks.extend(pending_chunks)
                             pending_chunks.clear()
                             silence_chunks = 0
@@ -92,6 +156,7 @@ class MicrophoneRecorder:
                     continue
 
                 chunks.append(chunk)
+                is_active = level >= speech_end_threshold
                 if is_active:
                     silence_chunks = 0
                 else:

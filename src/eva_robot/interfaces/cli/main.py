@@ -115,6 +115,9 @@ def main() -> None:
         no_speech_timeout_seconds=config.no_speech_timeout_seconds,
         speech_start_chunks=config.speech_start_chunks,
         preroll_duration_seconds=config.preroll_duration_seconds,
+        ambient_noise_seconds=config.ambient_noise_seconds,
+        speech_start_threshold_multiplier=config.speech_start_threshold_multiplier,
+        speech_end_threshold_multiplier=config.speech_end_threshold_multiplier,
     )
     asr = FasterWhisperAsr(
         model_path=config.whisper_model_path,

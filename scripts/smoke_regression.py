@@ -530,6 +530,53 @@ def test_microphone_waits_before_speech_without_shortening_recording() -> None:
     )
 
 
+def test_microphone_calibrates_against_ambient_noise() -> None:
+    chunks = [
+        np.array([0.03], dtype=np.float32),
+        np.array([0.04], dtype=np.float32),
+        np.array([0.05], dtype=np.float32),
+        np.array([0.06], dtype=np.float32),
+        np.array([0.06], dtype=np.float32),
+        np.array([0.05], dtype=np.float32),
+        np.array([0.14], dtype=np.float32),
+        np.array([0.15], dtype=np.float32),
+        np.array([0.16], dtype=np.float32),
+        np.array([0.0], dtype=np.float32),
+        np.array([0.0], dtype=np.float32),
+    ]
+    original_input_stream = microphone_module.sd.InputStream
+    microphone_module.sd.InputStream = lambda **kwargs: FakeInputStream(chunks, **kwargs)
+    try:
+        recorder = MicrophoneRecorder(
+            sample_rate=10,
+            record_seconds=3,
+            min_record_seconds=0.1,
+            max_record_seconds=1.0,
+            silence_duration_seconds=0.2,
+            silence_threshold=0.01,
+            no_speech_timeout_seconds=1.5,
+            speech_start_chunks=3,
+            preroll_duration_seconds=0.3,
+            ambient_noise_seconds=0.4,
+            speech_start_threshold_multiplier=2.2,
+            speech_end_threshold_multiplier=1.6,
+        )
+        recorded = recorder.record()
+    finally:
+        microphone_module.sd.InputStream = original_input_stream
+
+    assert_equal(
+        recorded.size,
+        5,
+        "ambient calibration should ignore steady low-level room noise before speech",
+    )
+    assert_allclose(
+        recorded.tolist(),
+        [0.14, 0.15, 0.16, 0.0, 0.0],
+        "speech should begin only once chunks rise well above the calibrated noise floor",
+    )
+
+
 def main() -> int:
     test_intent_router()
     test_stateful_learning_mode()
@@ -545,6 +592,7 @@ def main() -> int:
     test_asr_second_pass_prefers_forced_language_result()
     test_microphone_waits_for_real_speech()
     test_microphone_waits_before_speech_without_shortening_recording()
+    test_microphone_calibrates_against_ambient_noise()
     print("smoke_regression: ok")
     return 0
 

@@ -134,6 +134,9 @@ export SILENCE_THRESHOLD="0.01"
 export NO_SPEECH_TIMEOUT_SECONDS="2.0"
 export SPEECH_START_CHUNKS="3"
 export PREROLL_DURATION_SECONDS="0.3"
+export AMBIENT_NOISE_SECONDS="0.4"
+export SPEECH_START_THRESHOLD_MULTIPLIER="2.2"
+export SPEECH_END_THRESHOLD_MULTIPLIER="1.6"
 export FOLLOWUP_COOLDOWN_SECONDS="0.6"
 export ASR_VAD_FILTER="true"
 export ASR_BEAM_SIZE="5"
@@ -159,6 +162,13 @@ If follow-up listening starts too early because of ambient noise, try increasing
 `SPEECH_START_CHUNKS` or `SILENCE_THRESHOLD`. `PREROLL_DURATION_SECONDS` keeps a
 small amount of audio before speech detection so the first syllable is less
 likely to be clipped.
+
+If the room has constant background noise, Eva now calibrates a short ambient
+noise floor before speech starts. Increase `AMBIENT_NOISE_SECONDS` to make that
+baseline steadier, or raise `SPEECH_START_THRESHOLD_MULTIPLIER` when fans,
+air-conditioners, or keyboard noise still trigger early recording. Keep
+`SPEECH_END_THRESHOLD_MULTIPLIER` lower than the start multiplier so Eva can
+stay locked onto a real utterance without clipping the ending.
 
 If Eva sometimes re-hears its own reply, try headphones first, then increase
 `FOLLOWUP_COOLDOWN_SECONDS` slightly, for example from `0.6` to `0.8`.
