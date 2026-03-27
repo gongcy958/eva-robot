@@ -15,6 +15,7 @@ from src.eva_robot.application.use_cases.run_voice_turn import RunVoiceTurnUseCa
 from src.eva_robot.application.services.ports import AsrTranscription
 from src.eva_robot.domain.intents import IntentRouter
 from src.eva_robot.infrastructure.llm.failover_client import FailoverLlmClient
+from src.eva_robot.infrastructure.tts.system_tts import SystemTts
 from src.eva_robot.interfaces.voice import microphone as microphone_module
 from src.eva_robot.interfaces.voice import runtime as runtime_module
 from src.eva_robot.interfaces.voice.microphone import MicrophoneRecorder
@@ -680,6 +681,19 @@ def test_audio_tuning_recommendation_matches_noisy_room_profile() -> None:
     )
 
 
+def test_system_tts_builds_voice_and_rate_command() -> None:
+    tts = SystemTts(
+        voice="Eddy (中文（中国大陆）)",
+        rate=190,
+    )
+
+    assert_equal(
+        tts._build_say_command("你好"),
+        ["say", "-v", "Eddy (中文（中国大陆）)", "-r", "190", "你好"],
+        "system tts should pass configured voice and speaking rate to macOS say",
+    )
+
+
 def main() -> int:
     test_intent_router()
     test_stateful_learning_mode()
@@ -699,6 +713,7 @@ def main() -> int:
     test_listen_once_ignores_recent_tts_echo()
     test_low_confidence_confirmation_can_resume_original_request()
     test_audio_tuning_recommendation_matches_noisy_room_profile()
+    test_system_tts_builds_voice_and_rate_command()
     print("smoke_regression: ok")
     return 0
 

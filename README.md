@@ -149,6 +149,8 @@ export CONVERSATION_MEMORY_TURNS="3"
 export LOG_LEVEL="INFO"
 export LOG_FILE_PATH="logs/eva_robot.jsonl"
 export SKIP_STARTUP_CHECKS="false"
+export TTS_VOICE=""
+export TTS_RATE=""
 export WAKE_WORD="伊娃"
 export WAKE_ACK_MESSAGE="我在。"
 export INLINE_WAKE_ACK_MESSAGE=""
@@ -189,6 +191,29 @@ Provider selection:
 - `LLM_PROVIDER=openai_compatible`: uses the remote compatible API and defaults to `gpt-5.1-2025-11-13`
 - `LLM_PROVIDER=ollama`: uses the local Ollama model in `OLLAMA_MODEL`
 - When `LLM_PROVIDER=openai_compatible`, Eva automatically falls back to local Ollama for the current session if remote preflight or runtime requests fail and Ollama is available
+
+On macOS, Eva can also use a specific system voice with `TTS_VOICE` and an
+optional speaking speed with `TTS_RATE`. To list the voices installed on your
+machine, run:
+
+```bash
+say -v '?'
+```
+
+Examples that are available on this machine include:
+
+- `Eddy (中文（中国大陆）)`
+- `Flo (中文（中国大陆）)`
+- `Eddy (英语（美国）)`
+- `Grandma (英语（美国）)`
+- `Daniel`
+
+Example configuration:
+
+```bash
+export TTS_VOICE="Eddy (中文（中国大陆）)"
+export TTS_RATE="190"
+```
 
 One-command mode switching:
 

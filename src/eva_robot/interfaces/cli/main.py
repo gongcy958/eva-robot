@@ -134,7 +134,10 @@ def main() -> None:
         logger,
         effective_provider=preflight_result.effective_llm_provider,
     )
-    tts = SystemTts()
+    tts = SystemTts(
+        voice=config.tts_voice,
+        rate=config.tts_rate,
+    )
 
     use_case = RunVoiceTurnUseCase(
         recorder=recorder,

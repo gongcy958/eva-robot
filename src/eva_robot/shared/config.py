@@ -66,6 +66,18 @@ def _env_optional_str(name: str, default: str | None = None) -> str | None:
     return normalized
 
 
+def _env_optional_int(name: str, default: int | None = None) -> int | None:
+    value = os.getenv(name)
+    if value is None:
+        return default
+
+    normalized = value.strip()
+    if not normalized:
+        return default
+
+    return int(normalized)
+
+
 @dataclass(frozen=True)
 class AppConfig:
     whisper_model_path: str = os.getenv(
@@ -130,6 +142,8 @@ class AppConfig:
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
     log_file_path: str | None = _env_optional_str("LOG_FILE_PATH", "logs/eva_robot.jsonl")
     skip_startup_checks: bool = _env_bool("SKIP_STARTUP_CHECKS", False)
+    tts_voice: str | None = _env_optional_str("TTS_VOICE")
+    tts_rate: int | None = _env_optional_int("TTS_RATE")
     wake_word: str = os.getenv("WAKE_WORD", "hello")
     wake_ack_message: str = os.getenv("WAKE_ACK_MESSAGE", "我在。")
     inline_wake_ack_message: str | None = _env_optional_str(
