@@ -26,11 +26,17 @@ class FasterWhisperAsr:
         self._beam_size = beam_size
         self._temperature = temperature
 
-    def transcribe_with_details(self, audio: object) -> AsrTranscription:
+    def _transcribe_internal(
+        self,
+        audio: object,
+        *,
+        language: str | None = None,
+        vad_filter: bool | None = None,
+    ) -> AsrTranscription:
         segments, _info = self._model.transcribe(
             audio,
-            language=self._language,
-            vad_filter=self._vad_filter,
+            language=self._language if language is None else language,
+            vad_filter=self._vad_filter if vad_filter is None else vad_filter,
             beam_size=self._beam_size,
             temperature=self._temperature,
         )
@@ -48,6 +54,22 @@ class FasterWhisperAsr:
             language=getattr(_info, "language", None),
             language_probability=getattr(_info, "language_probability", None),
             segment_count=len(segment_list),
+        )
+
+    def transcribe_with_details(self, audio: object) -> AsrTranscription:
+        return self._transcribe_internal(audio)
+
+    def transcribe_with_overrides(
+        self,
+        audio: object,
+        *,
+        language: str | None = None,
+        vad_filter: bool | None = None,
+    ) -> AsrTranscription:
+        return self._transcribe_internal(
+            audio,
+            language=language,
+            vad_filter=vad_filter,
         )
 
     def transcribe(self, audio: object) -> str:

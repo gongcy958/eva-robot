@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 import re
 import time
 from typing import Literal
@@ -69,6 +70,19 @@ class ConversationTurn:
     intent: Intent
 
 
+@dataclass(frozen=True)
+class RecentTtsUtterance:
+    text: str
+    completed_at: float
+
+
+@dataclass(frozen=True)
+class PendingClarification:
+    text: str
+    intent: Intent
+    expires_at: float
+
+
 FALLBACK_RESPONSES: dict[Intent, str] = {
     "small_talk": "Sorry, I had trouble replying just now. Could you say that again?",
     "translate_text": "Sorry, I couldn't translate that just now. Please say the sentence again.",
@@ -106,6 +120,13 @@ class RunVoiceTurnUseCase:
         asr_min_avg_logprob: float = -1.2,
         asr_max_no_speech_prob: float = 0.7,
         asr_low_confidence_message: str = "Sorry, I didn't catch that clearly. Please say it again.",
+        asr_second_pass_language: str | None = None,
+        asr_second_pass_min_language_probability: float = 0.65,
+        asr_second_pass_disable_vad: bool = True,
+        echo_filter_window_seconds: float = 3.0,
+        echo_filter_min_similarity: float = 0.72,
+        echo_filter_min_chars: int = 12,
+        low_confidence_confirmation_timeout_seconds: float = 12.0,
         logger: StructuredLogger | None = None,
     ) -> None:
         self._recorder = recorder
@@ -121,9 +142,32 @@ class RunVoiceTurnUseCase:
         self._asr_min_avg_logprob = asr_min_avg_logprob
         self._asr_max_no_speech_prob = asr_max_no_speech_prob
         self._asr_low_confidence_message = asr_low_confidence_message
+        self._asr_second_pass_language = (
+            asr_second_pass_language.strip().lower()
+            if asr_second_pass_language
+            else None
+        )
+        self._asr_second_pass_min_language_probability = max(
+            0.0,
+            min(1.0, asr_second_pass_min_language_probability),
+        )
+        self._asr_second_pass_disable_vad = asr_second_pass_disable_vad
+        self._echo_filter_window_seconds = max(0.0, echo_filter_window_seconds)
+        self._echo_filter_min_similarity = max(
+            0.0,
+            min(1.0, echo_filter_min_similarity),
+        )
+        self._echo_filter_min_chars = max(0, echo_filter_min_chars)
+        self._low_confidence_confirmation_timeout_seconds = max(
+            0.0,
+            low_confidence_confirmation_timeout_seconds,
+        )
         self._active_learning_mode: LearningMode | None = None
         self._active_family_scene: FamilyScene | None = None
         self._logger = logger or StructuredLogger()
+        self._last_tts_completed_at: float | None = None
+        self._recent_tts_utterances: deque[RecentTtsUtterance] = deque(maxlen=4)
+        self._pending_clarification: PendingClarification | None = None
 
     def _build_prompt(self, base_prompt: str) -> str:
         prompt_parts = [base_prompt.strip()]
@@ -570,6 +614,183 @@ class RunVoiceTurnUseCase:
         spoken = re.sub(r"\s+", " ", spoken).strip()
         return spoken
 
+    @staticmethod
+    def _spoken_preview(text: str, max_chars: int = 36) -> str:
+        compact = re.sub(r"\s+", " ", text).strip()
+        if len(compact) <= max_chars:
+            return compact
+        return compact[: max_chars - 1].rstrip() + "…"
+
+    @staticmethod
+    def _normalize_echo_text(text: str) -> str:
+        return re.sub(r"[\W_]+", "", text.lower())
+
+    def _remember_tts_output(self, text: str) -> None:
+        completed_at = time.monotonic()
+        self._last_tts_completed_at = completed_at
+        normalized = self._normalize_echo_text(text)
+        if not normalized:
+            return
+        self._recent_tts_utterances.append(
+            RecentTtsUtterance(text=text.strip(), completed_at=completed_at)
+        )
+
+    def _match_recent_tts_echo(
+        self,
+        text: str,
+    ) -> tuple[RecentTtsUtterance, float] | None:
+        if self._echo_filter_window_seconds <= 0:
+            return None
+
+        normalized_text = self._normalize_echo_text(text)
+        if not normalized_text:
+            return None
+
+        now = time.monotonic()
+        for utterance in reversed(self._recent_tts_utterances):
+            age_seconds = now - utterance.completed_at
+            if age_seconds > self._echo_filter_window_seconds:
+                break
+
+            normalized_utterance = self._normalize_echo_text(utterance.text)
+            if not normalized_utterance:
+                continue
+
+            if normalized_text == normalized_utterance:
+                return utterance, 1.0
+
+            if len(normalized_text) < self._echo_filter_min_chars:
+                continue
+
+            similarity = SequenceMatcher(
+                None,
+                normalized_text,
+                normalized_utterance,
+            ).ratio()
+            if similarity >= self._echo_filter_min_similarity:
+                return utterance, similarity
+
+            shorter, longer = sorted(
+                (normalized_text, normalized_utterance),
+                key=len,
+            )
+            if shorter and shorter in longer:
+                containment_ratio = len(shorter) / len(longer)
+                if containment_ratio >= self._echo_filter_min_similarity:
+                    return utterance, containment_ratio
+
+        return None
+
+    def _build_low_confidence_confirmation(
+        self,
+        text: str,
+        intent: Intent,
+    ) -> str:
+        heard_text = self._spoken_preview(text)
+        if intent == "translate_text":
+            return f"我听到的像是：{heard_text}。你是想让我翻译这句话吗？"
+        if intent == "word_explain":
+            return f"我听到的像是：{heard_text}。你是想问这个词或句子的意思吗？"
+        if intent == "sentence_fix":
+            return f"我听到的像是：{heard_text}。你是想让我帮你改这句话吗？"
+        if intent == "grammar_question":
+            return f"我听到的像是：{heard_text}。你是在问一个语法问题吗？"
+        if intent == "repeat_slowly":
+            return f"我听到的像是：{heard_text}。你是想让我慢一点再说一遍吗？"
+        if intent == "ask_in_english":
+            return f"我听到的像是：{heard_text}。你是想让我用英语回答吗？"
+        return f"我听到的像是：{heard_text}。如果我听错了，请再说一遍。"
+
+    def _queue_low_confidence_confirmation(self, text: str) -> None:
+        intent = self._router.route(text)
+        expires_at = (
+            time.monotonic() + self._low_confidence_confirmation_timeout_seconds
+        )
+        self._pending_clarification = PendingClarification(
+            text=text,
+            intent=intent,
+            expires_at=expires_at,
+        )
+        message = self._build_low_confidence_confirmation(text, intent)
+        self._logger.info(
+            "asr.low_confidence_clarification_requested",
+            transcript=text,
+            intent=intent,
+        )
+        self.speak_feedback(message)
+
+    @staticmethod
+    def _is_confirmation_reply(text: str, replies: set[str]) -> bool:
+        return RunVoiceTurnUseCase._normalized_followup_text(text) in replies
+
+    def _handle_pending_clarification(self, text: str) -> bool:
+        pending = self._pending_clarification
+        if pending is None:
+            return False
+
+        if time.monotonic() > pending.expires_at:
+            self._logger.info(
+                "asr.low_confidence_clarification_expired",
+                transcript=pending.text,
+                intent=pending.intent,
+            )
+            self._pending_clarification = None
+            return False
+
+        yes_replies = {
+            "yes",
+            "yeah",
+            "yep",
+            "right",
+            "correct",
+            "对",
+            "对的",
+            "是的",
+            "没错",
+            "嗯",
+            "嗯对",
+            "好的",
+        }
+        no_replies = {
+            "no",
+            "nope",
+            "wrong",
+            "not that",
+            "不是",
+            "不对",
+            "没有",
+            "重来",
+        }
+
+        if self._is_confirmation_reply(text, yes_replies):
+            self._pending_clarification = None
+            self._logger.info(
+                "asr.low_confidence_clarification_confirmed",
+                transcript=pending.text,
+                intent=pending.intent,
+            )
+            self._handle_user_text(pending.text)
+            return True
+
+        if self._is_confirmation_reply(text, no_replies):
+            self._pending_clarification = None
+            self._logger.info(
+                "asr.low_confidence_clarification_rejected",
+                transcript=pending.text,
+                intent=pending.intent,
+            )
+            self.speak_feedback(self._asr_low_confidence_message)
+            return True
+
+        self._logger.info(
+            "asr.low_confidence_clarification_superseded",
+            transcript=pending.text,
+            intent=pending.intent,
+            user_text=text,
+        )
+        self._pending_clarification = None
+        return False
+
     def speak_feedback(self, text: str) -> None:
         feedback = text.strip()
         if not feedback:
@@ -577,6 +798,7 @@ class RunVoiceTurnUseCase:
 
         try:
             self._tts.speak(feedback)
+            self._remember_tts_output(feedback)
             self._logger.info(
                 "tts.feedback_completed",
                 text_length=len(feedback),
@@ -587,15 +809,17 @@ class RunVoiceTurnUseCase:
                 error=str(exc),
             )
 
+    def seconds_since_last_tts(self) -> float | None:
+        if self._last_tts_completed_at is None:
+            return None
+        return max(0.0, time.monotonic() - self._last_tts_completed_at)
+
     def _transcribe(self, audio: np.ndarray) -> AsrTranscription | None:
         last_error: Exception | None = None
         for attempt in range(1, self._asr_retries + 1):
             started_at = time.perf_counter()
             try:
-                if hasattr(self._asr, "transcribe_with_details"):
-                    result = self._asr.transcribe_with_details(audio)
-                else:
-                    result = AsrTranscription(text=self._asr.transcribe(audio))
+                result = self._transcribe_once(audio)
                 duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
                 self._logger.info(
                     "asr.transcribe_completed",
@@ -626,6 +850,132 @@ class RunVoiceTurnUseCase:
             )
         return None
 
+    def _transcribe_once(self, audio: np.ndarray) -> AsrTranscription:
+        if hasattr(self._asr, "transcribe_with_details"):
+            primary = self._asr.transcribe_with_details(audio)
+        else:
+            primary = AsrTranscription(text=self._asr.transcribe(audio))
+
+        return self._maybe_run_second_pass(audio, primary)
+
+    def _maybe_run_second_pass(
+        self,
+        audio: np.ndarray,
+        primary: AsrTranscription,
+    ) -> AsrTranscription:
+        if not hasattr(self._asr, "transcribe_with_overrides"):
+            return primary
+
+        if not self._should_run_second_pass(primary):
+            return primary
+
+        override_language = self._asr_second_pass_language
+        override_vad = False if self._asr_second_pass_disable_vad else None
+
+        second_pass_started_at = time.perf_counter()
+        secondary = self._asr.transcribe_with_overrides(
+            audio,
+            language=override_language,
+            vad_filter=override_vad,
+        )
+        self._logger.info(
+            "asr.second_pass_completed",
+            duration_ms=round((time.perf_counter() - second_pass_started_at) * 1000, 2),
+            primary_transcript=primary.text,
+            secondary_transcript=secondary.text,
+            forced_language=override_language,
+            vad_filter=override_vad,
+            primary_language=primary.language,
+            secondary_language=secondary.language,
+            primary_language_probability=primary.language_probability,
+            secondary_language_probability=secondary.language_probability,
+        )
+
+        selected, selected_stage = self._select_better_transcription(primary, secondary)
+        self._logger.info(
+            "asr.second_pass_selected",
+            selected_stage=selected_stage,
+            transcript=selected.text,
+        )
+        return selected
+
+    def _should_run_second_pass(self, transcription: AsrTranscription) -> bool:
+        if self._is_low_confidence_transcription(transcription):
+            return True
+
+        if not self._asr_second_pass_disable_vad and not self._asr_second_pass_language:
+            return False
+
+        if not self._asr_second_pass_language:
+            return False
+
+        language_probability = transcription.language_probability
+        if language_probability is None:
+            return False
+
+        if language_probability >= self._asr_second_pass_min_language_probability:
+            return False
+
+        detected_language = (transcription.language or "").strip().lower()
+        return detected_language != self._asr_second_pass_language
+
+    def _select_better_transcription(
+        self,
+        primary: AsrTranscription,
+        secondary: AsrTranscription,
+    ) -> tuple[AsrTranscription, str]:
+        primary_text = primary.text.strip()
+        secondary_text = secondary.text.strip()
+        primary_low = self._is_low_confidence_transcription(primary)
+        secondary_low = self._is_low_confidence_transcription(secondary)
+
+        if not secondary_text:
+            return primary, "primary"
+
+        if not primary_text:
+            return secondary, "secondary"
+
+        if primary_low and not secondary_low:
+            return secondary, "secondary"
+
+        if secondary_low and not primary_low:
+            return primary, "primary"
+
+        primary_score = self._transcription_score(primary)
+        secondary_score = self._transcription_score(secondary)
+        if secondary_score > primary_score + 0.05:
+            return secondary, "secondary"
+
+        if (
+            self._asr_second_pass_language
+            and (secondary.language or "").strip().lower() == self._asr_second_pass_language
+            and (
+                primary.language_probability is not None
+                and primary.language_probability < self._asr_second_pass_min_language_probability
+            )
+        ):
+            return secondary, "secondary"
+
+        return primary, "primary"
+
+    @staticmethod
+    def _transcription_score(transcription: AsrTranscription) -> float:
+        score = 0.0
+
+        if transcription.text.strip():
+            score += 1.0
+
+        if transcription.avg_logprob is not None:
+            score += transcription.avg_logprob
+
+        if transcription.no_speech_prob is not None:
+            score -= transcription.no_speech_prob
+
+        if transcription.language_probability is not None:
+            score += transcription.language_probability * 0.2
+
+        return score
+
     def _is_low_confidence_transcription(self, transcription: AsrTranscription) -> bool:
         if not transcription.text.strip():
             return False
@@ -644,14 +994,46 @@ class RunVoiceTurnUseCase:
 
         return False
 
-    def listen_once(self) -> str | None:
-        print(
-            f"\nListening... (max {self._record_seconds}s, "
-            "auto-stop after you stop speaking)"
+    def listen_once(
+        self,
+        wait_timeout_seconds: float | None = None,
+        max_record_seconds: float | None = None,
+    ) -> str | None:
+        wait_timeout = (
+            round(wait_timeout_seconds, 1)
+            if wait_timeout_seconds is not None
+            else None
         )
+        record_limit = (
+            round(max_record_seconds, 1)
+            if max_record_seconds is not None
+            else self._record_seconds
+        )
+        if wait_timeout is None:
+            print(
+                f"\nListening... (record up to {record_limit}s after speech starts)"
+            )
+        else:
+            print(
+                "\nListening... "
+                f"(wait up to {wait_timeout}s for speech, "
+                f"record up to {record_limit}s after speech starts)"
+            )
         started_at = time.perf_counter()
         try:
-            audio = self._recorder.record()
+            if hasattr(self._recorder, "record_with_limits"):
+                audio = self._recorder.record_with_limits(
+                    wait_timeout_seconds=wait_timeout_seconds,
+                    max_record_seconds=max_record_seconds,
+                )
+            else:
+                try:
+                    audio = self._recorder.record(
+                        wait_timeout_seconds=wait_timeout_seconds,
+                        max_record_seconds=max_record_seconds,
+                    )
+                except TypeError:
+                    audio = self._recorder.record()
         except Exception as exc:
             print(f"[Audio] recording error: {exc}")
             self._logger.error("audio.record_failed", error=str(exc))
@@ -694,6 +1076,25 @@ class RunVoiceTurnUseCase:
         if transcription is None:
             return None
 
+        text = transcription.text
+        print("Detected text:", repr(text))
+        if not text:
+            print("Didn't catch anything.")
+            self._logger.info("asr.transcribe_empty")
+            return None
+
+        matched_echo = self._match_recent_tts_echo(text)
+        if matched_echo is not None:
+            utterance, similarity = matched_echo
+            print("[Echo] ignored probable self-playback.")
+            self._logger.info(
+                "asr.self_echo_ignored",
+                transcript=text,
+                matched_tts=utterance.text,
+                similarity=round(similarity, 3),
+            )
+            return None
+
         if self._is_low_confidence_transcription(transcription):
             self._logger.warning(
                 "asr.low_confidence_detected",
@@ -701,21 +1102,19 @@ class RunVoiceTurnUseCase:
                 avg_logprob=transcription.avg_logprob,
                 no_speech_prob=transcription.no_speech_prob,
             )
-            print("[ASR] low confidence detected, asking user to repeat.")
-            self.speak_feedback(self._asr_low_confidence_message)
-            return None
-
-        text = transcription.text
-
-        print("Detected text:", repr(text))
-        if not text:
-            print("Didn't catch anything.")
-            self._logger.info("asr.transcribe_empty")
+            print("[ASR] low confidence detected, asking for confirmation.")
+            if (
+                text.strip()
+                and self._low_confidence_confirmation_timeout_seconds > 0
+            ):
+                self._queue_low_confidence_confirmation(text)
+            else:
+                self.speak_feedback(self._asr_low_confidence_message)
             return None
 
         return text
 
-    def handle_text(self, text: str) -> None:
+    def _handle_user_text(self, text: str) -> None:
         text = text.strip()
         if not text:
             return
@@ -765,6 +1164,7 @@ class RunVoiceTurnUseCase:
         tts_started_at = time.perf_counter()
         try:
             self._tts.speak(spoken_response)
+            self._remember_tts_output(spoken_response)
             tts_duration_ms = round((time.perf_counter() - tts_started_at) * 1000, 2)
             self._logger.info(
                 "tts.speak_completed",
@@ -779,6 +1179,16 @@ class RunVoiceTurnUseCase:
                 duration_ms=tts_duration_ms,
                 error=str(exc),
             )
+
+    def handle_text(self, text: str) -> None:
+        text = text.strip()
+        if not text:
+            return
+
+        if self._handle_pending_clarification(text):
+            return
+
+        self._handle_user_text(text)
 
     def run_once(self) -> None:
         text = self.listen_once()

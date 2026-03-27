@@ -66,6 +66,18 @@ def _env_optional_str(name: str, default: str | None = None) -> str | None:
     return normalized
 
 
+def _env_optional_int(name: str, default: int | None = None) -> int | None:
+    value = os.getenv(name)
+    if value is None:
+        return default
+
+    normalized = value.strip()
+    if not normalized:
+        return default
+
+    return int(normalized)
+
+
 @dataclass(frozen=True)
 class AppConfig:
     whisper_model_path: str = os.getenv(
@@ -84,6 +96,15 @@ class AppConfig:
     silence_duration_seconds: float = float(os.getenv("SILENCE_DURATION_SECONDS", "0.8"))
     silence_threshold: float = float(os.getenv("SILENCE_THRESHOLD", "0.01"))
     no_speech_timeout_seconds: float = float(os.getenv("NO_SPEECH_TIMEOUT_SECONDS", "2.0"))
+    speech_start_chunks: int = int(os.getenv("SPEECH_START_CHUNKS", "3"))
+    preroll_duration_seconds: float = float(os.getenv("PREROLL_DURATION_SECONDS", "0.3"))
+    ambient_noise_seconds: float = float(os.getenv("AMBIENT_NOISE_SECONDS", "0.4"))
+    speech_start_threshold_multiplier: float = float(
+        os.getenv("SPEECH_START_THRESHOLD_MULTIPLIER", "2.2")
+    )
+    speech_end_threshold_multiplier: float = float(
+        os.getenv("SPEECH_END_THRESHOLD_MULTIPLIER", "1.6")
+    )
     asr_vad_filter: bool = _env_bool("ASR_VAD_FILTER", True)
     asr_beam_size: int = int(os.getenv("ASR_BEAM_SIZE", "5"))
     asr_temperature: float = float(os.getenv("ASR_TEMPERATURE", "0.0"))
@@ -92,13 +113,28 @@ class AppConfig:
     asr_low_confidence_message: str = os.getenv(
         "ASR_LOW_CONFIDENCE_MESSAGE", "抱歉，我没太听清，请再说一遍。"
     )
+    asr_second_pass_language: str | None = _env_optional_str("ASR_SECOND_PASS_LANGUAGE")
+    asr_second_pass_min_language_probability: float = float(
+        os.getenv("ASR_SECOND_PASS_MIN_LANGUAGE_PROBABILITY", "0.65")
+    )
+    asr_second_pass_disable_vad: bool = _env_bool("ASR_SECOND_PASS_DISABLE_VAD", True)
+    echo_filter_window_seconds: float = float(
+        os.getenv("ECHO_FILTER_WINDOW_SECONDS", "3.0")
+    )
+    echo_filter_min_similarity: float = float(
+        os.getenv("ECHO_FILTER_MIN_SIMILARITY", "0.72")
+    )
+    echo_filter_min_chars: int = int(os.getenv("ECHO_FILTER_MIN_CHARS", "12"))
+    low_confidence_confirmation_timeout_seconds: float = float(
+        os.getenv("LOW_CONFIDENCE_CONFIRMATION_TIMEOUT_SECONDS", "12.0")
+    )
     llm_provider: str = os.getenv("LLM_PROVIDER", "openai_compatible")
     llm_profile: str = os.getenv("LLM_PROFILE", "default")
     llm_base_url: str = os.getenv("LLM_BASE_URL", "https://gmncode.cn")
     llm_api_key: str | None = _env_optional_str("LLM_API_KEY")
     llm_model: str | None = _env_optional_str("LLM_MODEL")
-    llm_default_model: str = os.getenv("LLM_DEFAULT_MODEL", "gpt-5.1")
-    llm_high_quality_model: str = os.getenv("LLM_HIGH_QUALITY_MODEL", "gpt-5.2")
+    llm_default_model: str = os.getenv("LLM_DEFAULT_MODEL", "gpt-5.1-2025-11-13")
+    llm_high_quality_model: str = os.getenv("LLM_HIGH_QUALITY_MODEL", "gpt-5.4")
     llm_timeout_seconds: int = int(os.getenv("LLM_TIMEOUT_SECONDS", "30"))
     llm_retries: int = int(os.getenv("LLM_RETRIES", "3"))
     llm_preflight_probe: bool = _env_bool("LLM_PREFLIGHT_PROBE", True)
@@ -106,11 +142,18 @@ class AppConfig:
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
     log_file_path: str | None = _env_optional_str("LOG_FILE_PATH", "logs/eva_robot.jsonl")
     skip_startup_checks: bool = _env_bool("SKIP_STARTUP_CHECKS", False)
-    wake_word: str = os.getenv("WAKE_WORD", "伊娃")
+    tts_voice: str | None = _env_optional_str("TTS_VOICE")
+    tts_rate: int | None = _env_optional_int("TTS_RATE")
+    wake_word: str = os.getenv("WAKE_WORD", "hello")
     wake_ack_message: str = os.getenv("WAKE_ACK_MESSAGE", "我在。")
+    inline_wake_ack_message: str | None = _env_optional_str(
+        "INLINE_WAKE_ACK_MESSAGE",
+        "",
+    )
     sleep_command: str = os.getenv("SLEEP_COMMAND", "退下吧")
     sleep_ack_message: str = os.getenv("SLEEP_ACK_MESSAGE", "好的，我先待命。")
     wake_timeout_seconds: int = int(os.getenv("WAKE_TIMEOUT_SECONDS", "60"))
+    followup_cooldown_seconds: float = float(os.getenv("FOLLOWUP_COOLDOWN_SECONDS", "0.6"))
 
     def resolved_llm_provider(self) -> str:
         return self.llm_provider.strip().lower()

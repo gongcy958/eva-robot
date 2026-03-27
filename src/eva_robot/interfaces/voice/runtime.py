@@ -11,17 +11,21 @@ class VoiceRuntime:
         run_voice_turn: RunVoiceTurnUseCase,
         wake_word: str,
         wake_ack_message: str,
+        inline_wake_ack_message: str | None,
         sleep_command: str,
         sleep_ack_message: str,
         wake_timeout_seconds: int,
+        followup_cooldown_seconds: float = 0.6,
         logger: StructuredLogger | None = None,
     ) -> None:
         self._run_voice_turn = run_voice_turn
         self._wake_word = wake_word.strip()
         self._wake_ack_message = wake_ack_message.strip()
+        self._inline_wake_ack_message = (inline_wake_ack_message or "").strip()
         self._sleep_command = sleep_command.strip()
         self._sleep_ack_message = sleep_ack_message.strip()
         self._wake_timeout_seconds = wake_timeout_seconds
+        self._followup_cooldown_seconds = max(0.0, followup_cooldown_seconds)
         self._is_awake = False
         self._last_active_at = 0.0
         self._logger = logger or StructuredLogger()
@@ -47,8 +51,16 @@ class VoiceRuntime:
         )
         return pattern.sub("", text, count=1).strip()
 
+    def _strip_leading_phrase_repetitions(self, text: str, phrase: str) -> str:
+        stripped = text.strip()
+        while True:
+            updated = self._strip_prefix_phrase(stripped, phrase)
+            if updated == stripped:
+                return stripped
+            stripped = updated
+
     def _extract_inline_command(self, text: str, phrase: str) -> str | None:
-        stripped = self._strip_prefix_phrase(text, phrase)
+        stripped = self._strip_leading_phrase_repetitions(text, phrase)
         if stripped and stripped != text.strip():
             return stripped
         return None
@@ -60,6 +72,26 @@ class VoiceRuntime:
             wake_timeout_seconds=self._wake_timeout_seconds,
         )
 
+    def _acknowledge_wake(self, *, inline_command: bool) -> None:
+        message = (
+            self._inline_wake_ack_message
+            if inline_command
+            else self._wake_ack_message
+        )
+        if not message:
+            self._logger.info(
+                "runtime.wake_ack_skipped",
+                inline_command=inline_command,
+            )
+            return
+
+        self._run_voice_turn.speak_feedback(message)
+        self._logger.info(
+            "runtime.wake_ack_spoken",
+            inline_command=inline_command,
+            message=message,
+        )
+
     def _set_awake(self) -> None:
         self._is_awake = True
         self._last_active_at = time.time()
@@ -69,6 +101,29 @@ class VoiceRuntime:
         self._is_awake = False
         self._last_active_at = 0.0
         self._logger.info("runtime.sleeping")
+
+    def _remaining_awake_seconds(self) -> float:
+        if not self._is_awake:
+            return 0.0
+        return max(0.1, self._wake_timeout_seconds - (time.time() - self._last_active_at))
+
+    def _wait_for_tts_cooldown(self) -> None:
+        if self._followup_cooldown_seconds <= 0:
+            return
+
+        if not hasattr(self._run_voice_turn, "seconds_since_last_tts"):
+            return
+
+        elapsed = self._run_voice_turn.seconds_since_last_tts()
+        if elapsed is None or elapsed >= self._followup_cooldown_seconds:
+            return
+
+        remaining = round(self._followup_cooldown_seconds - elapsed, 3)
+        self._logger.info(
+            "runtime.mic_cooldown_waited",
+            wait_seconds=remaining,
+        )
+        time.sleep(remaining)
 
     def run(self) -> None:
         print("=== Family English Robot Stable MVP ===")
@@ -95,7 +150,13 @@ class VoiceRuntime:
                     self._run_voice_turn.speak_feedback(self._sleep_ack_message)
                     self._set_sleeping()
 
-                text = self._run_voice_turn.listen_once()
+                self._wait_for_tts_cooldown()
+                wait_timeout_seconds = (
+                    self._remaining_awake_seconds() if self._is_awake else None
+                )
+                text = self._run_voice_turn.listen_once(
+                    wait_timeout_seconds=wait_timeout_seconds,
+                )
                 if not text:
                     continue
 
@@ -116,7 +177,7 @@ class VoiceRuntime:
                             command_text=inline_command,
                         )
                         self._set_awake()
-                        self._run_voice_turn.speak_feedback(self._wake_ack_message)
+                        self._acknowledge_wake(inline_command=True)
                         self._run_voice_turn.handle_text(inline_command)
                         self._last_active_at = time.time()
                         self._announce_followup_listening()
@@ -124,21 +185,24 @@ class VoiceRuntime:
                         print("[Wake] wake word detected. Listening for your request...")
                         self._logger.info("runtime.wake_word_detected", text=text)
                         self._set_awake()
-                        self._run_voice_turn.speak_feedback(self._wake_ack_message)
+                        self._acknowledge_wake(inline_command=False)
                         self._announce_followup_listening()
                     else:
                         print("[Wake] sleeping, ignored.")
                         self._logger.info("runtime.sleeping_ignored", text=text)
                     continue
 
-                awake_text = self._extract_inline_command(text, self._wake_word) or text
-                awake_text = awake_text.strip()
+                awake_text = text.strip()
                 if self._contains(text, self._wake_word):
-                    wake_remainder = self._strip_prefix_phrase(text, self._wake_word)
+                    wake_remainder = self._strip_leading_phrase_repetitions(
+                        text,
+                        self._wake_word,
+                    )
                     if not wake_remainder:
                         self._logger.info("runtime.wake_word_while_awake", text=text)
                         self._announce_followup_listening()
                         continue
+                    awake_text = wake_remainder
 
                 if not awake_text:
                     self._logger.info("runtime.empty_followup_ignored", text=text)

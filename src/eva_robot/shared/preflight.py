@@ -8,6 +8,12 @@ import requests
 
 from .config import AppConfig
 from .observability import StructuredLogger
+from .openai_compatible import (
+    extract_openai_model_ids,
+    normalize_openai_models_url,
+    normalize_openai_responses_url,
+    resolve_openai_model,
+)
 
 
 Level = Literal["info", "warning", "error"]
@@ -20,22 +26,10 @@ class PreflightFinding:
     message: str
 
 
-def _normalize_openai_models_url(base_url: str) -> str:
-    normalized = base_url.rstrip("/")
-    if normalized.endswith("/models"):
-        return normalized
-    if normalized.endswith("/v1"):
-        return f"{normalized}/models"
-    return f"{normalized}/v1/models"
-
-
-def _normalize_openai_responses_url(base_url: str) -> str:
-    normalized = base_url.rstrip("/")
-    if normalized.endswith("/responses"):
-        return normalized
-    if normalized.endswith("/v1"):
-        return f"{normalized}/responses"
-    return f"{normalized}/v1/responses"
+@dataclass(frozen=True)
+class StartupPreflightResult:
+    effective_llm_provider: str
+    used_fallback: bool = False
 
 
 def _normalize_ollama_tags_url(generate_url: str) -> str:
@@ -52,7 +46,8 @@ class StartupPreflight:
         self._config = config
         self._logger = logger or StructuredLogger()
 
-    def run(self) -> None:
+    def run(self) -> StartupPreflightResult:
+        provider = self._config.resolved_llm_provider()
         if self._config.skip_startup_checks:
             self._emit(
                 [
@@ -63,32 +58,73 @@ class StartupPreflight:
                     )
                 ]
             )
-            return
+            return StartupPreflightResult(effective_llm_provider=provider)
 
         findings: list[PreflightFinding] = []
-        findings.extend(self._check_whisper_model())
+        blocking_findings: list[PreflightFinding] = []
 
-        provider = self._config.resolved_llm_provider()
+        whisper_findings = self._check_whisper_model()
+        findings.extend(whisper_findings)
+        blocking_findings.extend(
+            finding for finding in whisper_findings if finding.level == "error"
+        )
+
+        used_fallback = False
+        effective_provider = provider
         if provider == "openai_compatible":
-            findings.extend(self._check_openai_compatible())
+            openai_findings = self._check_openai_compatible()
+            if self._has_errors(openai_findings):
+                ollama_findings = self._check_ollama()
+                if self._has_errors(ollama_findings):
+                    findings.extend(openai_findings)
+                    findings.extend(ollama_findings)
+                    blocking_findings.extend(
+                        finding
+                        for finding in openai_findings + ollama_findings
+                        if finding.level == "error"
+                    )
+                else:
+                    findings.extend(self._downgrade_errors(openai_findings))
+                    findings.extend(ollama_findings)
+                    findings.append(
+                        PreflightFinding(
+                            "warning",
+                            "llm.fallback.to_ollama",
+                            "OpenAI-compatible provider is unavailable; "
+                            f"falling back to local Ollama model: {self._config.ollama_model}",
+                        )
+                    )
+                    used_fallback = True
+                    effective_provider = "ollama"
+            else:
+                findings.extend(openai_findings)
         elif provider == "ollama":
-            findings.extend(self._check_ollama())
-        else:
-            findings.append(
-                PreflightFinding(
-                    "error",
-                    "llm.provider.unsupported",
-                    f"Unsupported LLM provider: {self._config.llm_provider}",
-                )
+            ollama_findings = self._check_ollama()
+            findings.extend(ollama_findings)
+            blocking_findings.extend(
+                finding for finding in ollama_findings if finding.level == "error"
             )
+        else:
+            unsupported = PreflightFinding(
+                "error",
+                "llm.provider.unsupported",
+                f"Unsupported LLM provider: {self._config.llm_provider}",
+            )
+            findings.append(unsupported)
+            blocking_findings.append(unsupported)
 
         self._emit(findings)
 
-        if any(finding.level == "error" for finding in findings):
+        if blocking_findings:
             raise RuntimeError(
                 "Startup preflight failed. Fix the errors above or set "
                 "SKIP_STARTUP_CHECKS=true to bypass temporarily."
             )
+
+        return StartupPreflightResult(
+            effective_llm_provider=effective_provider,
+            used_fallback=used_fallback,
+        )
 
     def _emit(self, findings: list[PreflightFinding]) -> None:
         if not findings:
@@ -100,6 +136,26 @@ class StartupPreflight:
             print(f"[Preflight][{finding.level.upper()}] {finding.message}")
             log_fn = getattr(self._logger, finding.level)
             log_fn("preflight.check", code=finding.code, message=finding.message)
+
+    @staticmethod
+    def _has_errors(findings: list[PreflightFinding]) -> bool:
+        return any(finding.level == "error" for finding in findings)
+
+    @staticmethod
+    def _downgrade_errors(findings: list[PreflightFinding]) -> list[PreflightFinding]:
+        downgraded: list[PreflightFinding] = []
+        for finding in findings:
+            if finding.level == "error":
+                downgraded.append(
+                    PreflightFinding(
+                        "warning",
+                        finding.code,
+                        finding.message,
+                    )
+                )
+            else:
+                downgraded.append(finding)
+        return downgraded
 
     def _check_whisper_model(self) -> list[PreflightFinding]:
         model_path = self._config.whisper_model_path.strip()
@@ -144,14 +200,18 @@ class StartupPreflight:
         findings: list[PreflightFinding] = []
         headers = {"Authorization": f"Bearer {self._config.llm_api_key}"}
         timeout_seconds = min(self._config.llm_timeout_seconds, 15)
+        requested_model = self._config.resolved_llm_model()
+        probe_model = requested_model
+        advertised_models: list[str] = []
 
         try:
             models_response = requests.get(
-                _normalize_openai_models_url(self._config.llm_base_url),
+                normalize_openai_models_url(self._config.llm_base_url),
                 headers=headers,
                 timeout=timeout_seconds,
             )
             models_response.raise_for_status()
+            advertised_models = extract_openai_model_ids(models_response.json())
             findings.append(
                 PreflightFinding(
                     "info",
@@ -159,6 +219,27 @@ class StartupPreflight:
                     "OpenAI-compatible endpoint and API key look valid.",
                 )
             )
+            resolved_model = resolve_openai_model(requested_model, advertised_models)
+            if resolved_model and resolved_model != requested_model:
+                probe_model = resolved_model
+                findings.append(
+                    PreflightFinding(
+                        "warning",
+                        "llm.model.resolved",
+                        "Configured model "
+                        f"{requested_model} is not advertised by the provider; "
+                        f"using {resolved_model} instead.",
+                    )
+                )
+            elif advertised_models and requested_model not in advertised_models:
+                findings.append(
+                    PreflightFinding(
+                        "warning",
+                        "llm.model.unlisted",
+                        "Configured model "
+                        f"{requested_model} is not advertised by the provider.",
+                    )
+                )
         except Exception as exc:
             return [
                 PreflightFinding(
@@ -180,10 +261,10 @@ class StartupPreflight:
 
         try:
             response = requests.post(
-                _normalize_openai_responses_url(self._config.llm_base_url),
+                normalize_openai_responses_url(self._config.llm_base_url),
                 headers={**headers, "Content-Type": "application/json"},
                 json={
-                    "model": self._config.resolved_llm_model(),
+                    "model": probe_model,
                     "input": [{"role": "user", "content": "ping"}],
                     "max_output_tokens": 1,
                 },
@@ -194,7 +275,13 @@ class StartupPreflight:
                 PreflightFinding(
                     "info",
                     "llm.probe.ok",
-                    f"Remote model probe succeeded: {self._config.resolved_llm_model()}",
+                    "Remote model probe succeeded: "
+                    f"{probe_model}"
+                    + (
+                        f" (requested {requested_model})"
+                        if probe_model != requested_model
+                        else ""
+                    ),
                 )
             )
         except Exception as exc:
@@ -202,7 +289,14 @@ class StartupPreflight:
                 PreflightFinding(
                     "error",
                     "llm.probe.failed",
-                    f"Remote model probe failed for {self._config.resolved_llm_model()}: {exc}",
+                    "Remote model probe failed for "
+                    f"{probe_model}"
+                    + (
+                        f" (requested {requested_model})"
+                        if probe_model != requested_model
+                        else ""
+                    )
+                    + f": {exc}",
                 )
             )
 
