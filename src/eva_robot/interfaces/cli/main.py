@@ -159,6 +159,7 @@ def main() -> None:
         run_voice_turn=use_case,
         wake_word=config.wake_word,
         wake_ack_message=config.wake_ack_message,
+        inline_wake_ack_message=config.inline_wake_ack_message,
         sleep_command=config.sleep_command,
         sleep_ack_message=config.sleep_ack_message,
         wake_timeout_seconds=config.wake_timeout_seconds,

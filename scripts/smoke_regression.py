@@ -292,6 +292,7 @@ def test_runtime_wake_then_follow_up() -> None:
         run_voice_turn=turn,
         wake_word="hello",
         wake_ack_message="I'm here.",
+        inline_wake_ack_message="",
         sleep_command="goodbye",
         sleep_ack_message="Going idle.",
         wake_timeout_seconds=60,
@@ -313,6 +314,7 @@ def test_runtime_inline_wake_command() -> None:
         run_voice_turn=turn,
         wake_word="hello",
         wake_ack_message="I'm here.",
+        inline_wake_ack_message="",
         sleep_command="goodbye",
         sleep_ack_message="Going idle.",
         wake_timeout_seconds=60,
@@ -320,7 +322,7 @@ def test_runtime_inline_wake_command() -> None:
 
     runtime.run()
 
-    assert_equal(turn.spoken[0], "I'm here.", "inline wake should still speak ack")
+    assert_equal(turn.spoken, [], "inline wake should skip the full spoken ack by default")
     assert_equal(
         turn.handled,
         ["translate this"],
@@ -338,6 +340,7 @@ def test_runtime_repeated_wake_words_do_not_become_command() -> None:
         run_voice_turn=turn,
         wake_word="hello",
         wake_ack_message="I'm here.",
+        inline_wake_ack_message="",
         sleep_command="goodbye",
         sleep_ack_message="Going idle.",
         wake_timeout_seconds=60,
@@ -363,6 +366,7 @@ def test_runtime_repeated_wake_words_are_fully_stripped() -> None:
         run_voice_turn=turn,
         wake_word="hello",
         wake_ack_message="I'm here.",
+        inline_wake_ack_message="",
         sleep_command="goodbye",
         sleep_ack_message="Going idle.",
         wake_timeout_seconds=60,
@@ -392,6 +396,7 @@ def test_runtime_waits_for_recent_tts_before_listening() -> None:
             run_voice_turn=turn,
             wake_word="hello",
             wake_ack_message="I'm here.",
+            inline_wake_ack_message="",
             sleep_command="goodbye",
             sleep_ack_message="Going idle.",
             wake_timeout_seconds=60,

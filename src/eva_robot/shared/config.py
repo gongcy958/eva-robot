@@ -122,6 +122,10 @@ class AppConfig:
     skip_startup_checks: bool = _env_bool("SKIP_STARTUP_CHECKS", False)
     wake_word: str = os.getenv("WAKE_WORD", "hello")
     wake_ack_message: str = os.getenv("WAKE_ACK_MESSAGE", "我在。")
+    inline_wake_ack_message: str | None = _env_optional_str(
+        "INLINE_WAKE_ACK_MESSAGE",
+        "",
+    )
     sleep_command: str = os.getenv("SLEEP_COMMAND", "退下吧")
     sleep_ack_message: str = os.getenv("SLEEP_ACK_MESSAGE", "好的，我先待命。")
     wake_timeout_seconds: int = int(os.getenv("WAKE_TIMEOUT_SECONDS", "60"))

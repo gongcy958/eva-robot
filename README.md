@@ -147,6 +147,7 @@ export LOG_FILE_PATH="logs/eva_robot.jsonl"
 export SKIP_STARTUP_CHECKS="false"
 export WAKE_WORD="伊娃"
 export WAKE_ACK_MESSAGE="我在。"
+export INLINE_WAKE_ACK_MESSAGE=""
 export SLEEP_COMMAND="退下吧"
 export SLEEP_ACK_MESSAGE="好的，我先待命。"
 export WAKE_TIMEOUT_SECONDS="60"
@@ -197,9 +198,13 @@ Startup preflight now runs automatically before the voice loop. It checks:
 Wake interaction is smoother now:
 
 - You can say wake word and command in one sentence, for example `伊娃，帮我翻译 hello`
+- Inline wake commands skip the full wake confirmation by default so the answer starts faster
 - After each reply, Eva stays awake and keeps listening for follow-up questions until timeout
 - Eva now gives a short wake/sleep confirmation, and both messages are configurable
 - Structured tutor replies are normalized before TTS so they sound more natural when spoken
+
+If you still want a short spoken cue for inline commands, set
+`INLINE_WAKE_ACK_MESSAGE` to a brief phrase such as `好的` or `嗯`.
 
 Learning mode is now stateful. You can say commands like:
 

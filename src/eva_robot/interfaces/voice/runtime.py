@@ -11,6 +11,7 @@ class VoiceRuntime:
         run_voice_turn: RunVoiceTurnUseCase,
         wake_word: str,
         wake_ack_message: str,
+        inline_wake_ack_message: str | None,
         sleep_command: str,
         sleep_ack_message: str,
         wake_timeout_seconds: int,
@@ -20,6 +21,7 @@ class VoiceRuntime:
         self._run_voice_turn = run_voice_turn
         self._wake_word = wake_word.strip()
         self._wake_ack_message = wake_ack_message.strip()
+        self._inline_wake_ack_message = (inline_wake_ack_message or "").strip()
         self._sleep_command = sleep_command.strip()
         self._sleep_ack_message = sleep_ack_message.strip()
         self._wake_timeout_seconds = wake_timeout_seconds
@@ -68,6 +70,26 @@ class VoiceRuntime:
         self._logger.info(
             "runtime.awaiting_followup",
             wake_timeout_seconds=self._wake_timeout_seconds,
+        )
+
+    def _acknowledge_wake(self, *, inline_command: bool) -> None:
+        message = (
+            self._inline_wake_ack_message
+            if inline_command
+            else self._wake_ack_message
+        )
+        if not message:
+            self._logger.info(
+                "runtime.wake_ack_skipped",
+                inline_command=inline_command,
+            )
+            return
+
+        self._run_voice_turn.speak_feedback(message)
+        self._logger.info(
+            "runtime.wake_ack_spoken",
+            inline_command=inline_command,
+            message=message,
         )
 
     def _set_awake(self) -> None:
@@ -155,7 +177,7 @@ class VoiceRuntime:
                             command_text=inline_command,
                         )
                         self._set_awake()
-                        self._run_voice_turn.speak_feedback(self._wake_ack_message)
+                        self._acknowledge_wake(inline_command=True)
                         self._run_voice_turn.handle_text(inline_command)
                         self._last_active_at = time.time()
                         self._announce_followup_listening()
@@ -163,7 +185,7 @@ class VoiceRuntime:
                         print("[Wake] wake word detected. Listening for your request...")
                         self._logger.info("runtime.wake_word_detected", text=text)
                         self._set_awake()
-                        self._run_voice_turn.speak_feedback(self._wake_ack_message)
+                        self._acknowledge_wake(inline_command=False)
                         self._announce_followup_listening()
                     else:
                         print("[Wake] sleeping, ignored.")
