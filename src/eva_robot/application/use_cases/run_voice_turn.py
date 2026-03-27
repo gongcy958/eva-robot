@@ -76,6 +76,13 @@ class RecentTtsUtterance:
     completed_at: float
 
 
+@dataclass(frozen=True)
+class PendingClarification:
+    text: str
+    intent: Intent
+    expires_at: float
+
+
 FALLBACK_RESPONSES: dict[Intent, str] = {
     "small_talk": "Sorry, I had trouble replying just now. Could you say that again?",
     "translate_text": "Sorry, I couldn't translate that just now. Please say the sentence again.",
@@ -119,6 +126,7 @@ class RunVoiceTurnUseCase:
         echo_filter_window_seconds: float = 3.0,
         echo_filter_min_similarity: float = 0.72,
         echo_filter_min_chars: int = 12,
+        low_confidence_confirmation_timeout_seconds: float = 12.0,
         logger: StructuredLogger | None = None,
     ) -> None:
         self._recorder = recorder
@@ -150,11 +158,16 @@ class RunVoiceTurnUseCase:
             min(1.0, echo_filter_min_similarity),
         )
         self._echo_filter_min_chars = max(0, echo_filter_min_chars)
+        self._low_confidence_confirmation_timeout_seconds = max(
+            0.0,
+            low_confidence_confirmation_timeout_seconds,
+        )
         self._active_learning_mode: LearningMode | None = None
         self._active_family_scene: FamilyScene | None = None
         self._logger = logger or StructuredLogger()
         self._last_tts_completed_at: float | None = None
         self._recent_tts_utterances: deque[RecentTtsUtterance] = deque(maxlen=4)
+        self._pending_clarification: PendingClarification | None = None
 
     def _build_prompt(self, base_prompt: str) -> str:
         prompt_parts = [base_prompt.strip()]
@@ -602,6 +615,13 @@ class RunVoiceTurnUseCase:
         return spoken
 
     @staticmethod
+    def _spoken_preview(text: str, max_chars: int = 36) -> str:
+        compact = re.sub(r"\s+", " ", text).strip()
+        if len(compact) <= max_chars:
+            return compact
+        return compact[: max_chars - 1].rstrip() + "…"
+
+    @staticmethod
     def _normalize_echo_text(text: str) -> str:
         return re.sub(r"[\W_]+", "", text.lower())
 
@@ -660,6 +680,116 @@ class RunVoiceTurnUseCase:
                     return utterance, containment_ratio
 
         return None
+
+    def _build_low_confidence_confirmation(
+        self,
+        text: str,
+        intent: Intent,
+    ) -> str:
+        heard_text = self._spoken_preview(text)
+        if intent == "translate_text":
+            return f"我听到的像是：{heard_text}。你是想让我翻译这句话吗？"
+        if intent == "word_explain":
+            return f"我听到的像是：{heard_text}。你是想问这个词或句子的意思吗？"
+        if intent == "sentence_fix":
+            return f"我听到的像是：{heard_text}。你是想让我帮你改这句话吗？"
+        if intent == "grammar_question":
+            return f"我听到的像是：{heard_text}。你是在问一个语法问题吗？"
+        if intent == "repeat_slowly":
+            return f"我听到的像是：{heard_text}。你是想让我慢一点再说一遍吗？"
+        if intent == "ask_in_english":
+            return f"我听到的像是：{heard_text}。你是想让我用英语回答吗？"
+        return f"我听到的像是：{heard_text}。如果我听错了，请再说一遍。"
+
+    def _queue_low_confidence_confirmation(self, text: str) -> None:
+        intent = self._router.route(text)
+        expires_at = (
+            time.monotonic() + self._low_confidence_confirmation_timeout_seconds
+        )
+        self._pending_clarification = PendingClarification(
+            text=text,
+            intent=intent,
+            expires_at=expires_at,
+        )
+        message = self._build_low_confidence_confirmation(text, intent)
+        self._logger.info(
+            "asr.low_confidence_clarification_requested",
+            transcript=text,
+            intent=intent,
+        )
+        self.speak_feedback(message)
+
+    @staticmethod
+    def _is_confirmation_reply(text: str, replies: set[str]) -> bool:
+        return RunVoiceTurnUseCase._normalized_followup_text(text) in replies
+
+    def _handle_pending_clarification(self, text: str) -> bool:
+        pending = self._pending_clarification
+        if pending is None:
+            return False
+
+        if time.monotonic() > pending.expires_at:
+            self._logger.info(
+                "asr.low_confidence_clarification_expired",
+                transcript=pending.text,
+                intent=pending.intent,
+            )
+            self._pending_clarification = None
+            return False
+
+        yes_replies = {
+            "yes",
+            "yeah",
+            "yep",
+            "right",
+            "correct",
+            "对",
+            "对的",
+            "是的",
+            "没错",
+            "嗯",
+            "嗯对",
+            "好的",
+        }
+        no_replies = {
+            "no",
+            "nope",
+            "wrong",
+            "not that",
+            "不是",
+            "不对",
+            "没有",
+            "重来",
+        }
+
+        if self._is_confirmation_reply(text, yes_replies):
+            self._pending_clarification = None
+            self._logger.info(
+                "asr.low_confidence_clarification_confirmed",
+                transcript=pending.text,
+                intent=pending.intent,
+            )
+            self._handle_user_text(pending.text)
+            return True
+
+        if self._is_confirmation_reply(text, no_replies):
+            self._pending_clarification = None
+            self._logger.info(
+                "asr.low_confidence_clarification_rejected",
+                transcript=pending.text,
+                intent=pending.intent,
+            )
+            self.speak_feedback(self._asr_low_confidence_message)
+            return True
+
+        self._logger.info(
+            "asr.low_confidence_clarification_superseded",
+            transcript=pending.text,
+            intent=pending.intent,
+            user_text=text,
+        )
+        self._pending_clarification = None
+        return False
 
     def speak_feedback(self, text: str) -> None:
         feedback = text.strip()
@@ -972,13 +1102,19 @@ class RunVoiceTurnUseCase:
                 avg_logprob=transcription.avg_logprob,
                 no_speech_prob=transcription.no_speech_prob,
             )
-            print("[ASR] low confidence detected, asking user to repeat.")
-            self.speak_feedback(self._asr_low_confidence_message)
+            print("[ASR] low confidence detected, asking for confirmation.")
+            if (
+                text.strip()
+                and self._low_confidence_confirmation_timeout_seconds > 0
+            ):
+                self._queue_low_confidence_confirmation(text)
+            else:
+                self.speak_feedback(self._asr_low_confidence_message)
             return None
 
         return text
 
-    def handle_text(self, text: str) -> None:
+    def _handle_user_text(self, text: str) -> None:
         text = text.strip()
         if not text:
             return
@@ -1043,6 +1179,16 @@ class RunVoiceTurnUseCase:
                 duration_ms=tts_duration_ms,
                 error=str(exc),
             )
+
+    def handle_text(self, text: str) -> None:
+        text = text.strip()
+        if not text:
+            return
+
+        if self._handle_pending_clarification(text):
+            return
+
+        self._handle_user_text(text)
 
     def run_once(self) -> None:
         text = self.listen_once()

@@ -619,6 +619,39 @@ def test_listen_once_ignores_recent_tts_echo() -> None:
     assert_equal(text, None, "recent TTS playback should be ignored by ASR handoff")
 
 
+def test_low_confidence_confirmation_can_resume_original_request() -> None:
+    llm = CapturingLlm(calls=[])
+    tts = DummyTts(spoken=[])
+    use_case = RunVoiceTurnUseCase(
+        recorder=AudioRecorderOnce(audio=np.array([0.1, 0.2], dtype=np.float32)),
+        asr=DetailedAsr(
+            transcription=AsrTranscription(
+                text="translate this sentence",
+                avg_logprob=-2.0,
+                no_speech_prob=0.01,
+            )
+        ),
+        router=IntentRouter(),
+        llm=llm,
+        tts=tts,
+        record_seconds=3,
+        low_confidence_confirmation_timeout_seconds=12.0,
+    )
+
+    text = use_case.listen_once()
+    assert_equal(text, None, "low-confidence audio should pause for confirmation")
+    assert "你是想让我翻译这句话吗" in tts.spoken[-1], "confirmation should be intent-aware"
+
+    use_case.handle_text("yes")
+
+    assert_equal(len(llm.calls), 1, "confirmation should resume the original request")
+    assert_equal(
+        llm.calls[0][1],
+        "translate this sentence",
+        "confirmed low-confidence text should be replayed into the LLM flow",
+    )
+
+
 def main() -> int:
     test_intent_router()
     test_stateful_learning_mode()
@@ -636,6 +669,7 @@ def main() -> int:
     test_microphone_waits_before_speech_without_shortening_recording()
     test_microphone_calibrates_against_ambient_noise()
     test_listen_once_ignores_recent_tts_echo()
+    test_low_confidence_confirmation_can_resume_original_request()
     print("smoke_regression: ok")
     return 0
 

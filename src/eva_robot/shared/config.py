@@ -113,6 +113,9 @@ class AppConfig:
         os.getenv("ECHO_FILTER_MIN_SIMILARITY", "0.72")
     )
     echo_filter_min_chars: int = int(os.getenv("ECHO_FILTER_MIN_CHARS", "12"))
+    low_confidence_confirmation_timeout_seconds: float = float(
+        os.getenv("LOW_CONFIDENCE_CONFIRMATION_TIMEOUT_SECONDS", "12.0")
+    )
     llm_provider: str = os.getenv("LLM_PROVIDER", "openai_compatible")
     llm_profile: str = os.getenv("LLM_PROFILE", "default")
     llm_base_url: str = os.getenv("LLM_BASE_URL", "https://gmncode.cn")

@@ -156,6 +156,9 @@ def main() -> None:
         echo_filter_window_seconds=config.echo_filter_window_seconds,
         echo_filter_min_similarity=config.echo_filter_min_similarity,
         echo_filter_min_chars=config.echo_filter_min_chars,
+        low_confidence_confirmation_timeout_seconds=(
+            config.low_confidence_confirmation_timeout_seconds
+        ),
         logger=logger,
     )
     runtime = VoiceRuntime(
