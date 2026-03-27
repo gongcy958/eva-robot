@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 import re
 import time
 from typing import Literal
@@ -69,6 +70,12 @@ class ConversationTurn:
     intent: Intent
 
 
+@dataclass(frozen=True)
+class RecentTtsUtterance:
+    text: str
+    completed_at: float
+
+
 FALLBACK_RESPONSES: dict[Intent, str] = {
     "small_talk": "Sorry, I had trouble replying just now. Could you say that again?",
     "translate_text": "Sorry, I couldn't translate that just now. Please say the sentence again.",
@@ -109,6 +116,9 @@ class RunVoiceTurnUseCase:
         asr_second_pass_language: str | None = None,
         asr_second_pass_min_language_probability: float = 0.65,
         asr_second_pass_disable_vad: bool = True,
+        echo_filter_window_seconds: float = 3.0,
+        echo_filter_min_similarity: float = 0.72,
+        echo_filter_min_chars: int = 12,
         logger: StructuredLogger | None = None,
     ) -> None:
         self._recorder = recorder
@@ -134,10 +144,17 @@ class RunVoiceTurnUseCase:
             min(1.0, asr_second_pass_min_language_probability),
         )
         self._asr_second_pass_disable_vad = asr_second_pass_disable_vad
+        self._echo_filter_window_seconds = max(0.0, echo_filter_window_seconds)
+        self._echo_filter_min_similarity = max(
+            0.0,
+            min(1.0, echo_filter_min_similarity),
+        )
+        self._echo_filter_min_chars = max(0, echo_filter_min_chars)
         self._active_learning_mode: LearningMode | None = None
         self._active_family_scene: FamilyScene | None = None
         self._logger = logger or StructuredLogger()
         self._last_tts_completed_at: float | None = None
+        self._recent_tts_utterances: deque[RecentTtsUtterance] = deque(maxlen=4)
 
     def _build_prompt(self, base_prompt: str) -> str:
         prompt_parts = [base_prompt.strip()]
@@ -584,6 +601,66 @@ class RunVoiceTurnUseCase:
         spoken = re.sub(r"\s+", " ", spoken).strip()
         return spoken
 
+    @staticmethod
+    def _normalize_echo_text(text: str) -> str:
+        return re.sub(r"[\W_]+", "", text.lower())
+
+    def _remember_tts_output(self, text: str) -> None:
+        completed_at = time.monotonic()
+        self._last_tts_completed_at = completed_at
+        normalized = self._normalize_echo_text(text)
+        if not normalized:
+            return
+        self._recent_tts_utterances.append(
+            RecentTtsUtterance(text=text.strip(), completed_at=completed_at)
+        )
+
+    def _match_recent_tts_echo(
+        self,
+        text: str,
+    ) -> tuple[RecentTtsUtterance, float] | None:
+        if self._echo_filter_window_seconds <= 0:
+            return None
+
+        normalized_text = self._normalize_echo_text(text)
+        if not normalized_text:
+            return None
+
+        now = time.monotonic()
+        for utterance in reversed(self._recent_tts_utterances):
+            age_seconds = now - utterance.completed_at
+            if age_seconds > self._echo_filter_window_seconds:
+                break
+
+            normalized_utterance = self._normalize_echo_text(utterance.text)
+            if not normalized_utterance:
+                continue
+
+            if normalized_text == normalized_utterance:
+                return utterance, 1.0
+
+            if len(normalized_text) < self._echo_filter_min_chars:
+                continue
+
+            similarity = SequenceMatcher(
+                None,
+                normalized_text,
+                normalized_utterance,
+            ).ratio()
+            if similarity >= self._echo_filter_min_similarity:
+                return utterance, similarity
+
+            shorter, longer = sorted(
+                (normalized_text, normalized_utterance),
+                key=len,
+            )
+            if shorter and shorter in longer:
+                containment_ratio = len(shorter) / len(longer)
+                if containment_ratio >= self._echo_filter_min_similarity:
+                    return utterance, containment_ratio
+
+        return None
+
     def speak_feedback(self, text: str) -> None:
         feedback = text.strip()
         if not feedback:
@@ -591,7 +668,7 @@ class RunVoiceTurnUseCase:
 
         try:
             self._tts.speak(feedback)
-            self._last_tts_completed_at = time.monotonic()
+            self._remember_tts_output(feedback)
             self._logger.info(
                 "tts.feedback_completed",
                 text_length=len(feedback),
@@ -869,6 +946,25 @@ class RunVoiceTurnUseCase:
         if transcription is None:
             return None
 
+        text = transcription.text
+        print("Detected text:", repr(text))
+        if not text:
+            print("Didn't catch anything.")
+            self._logger.info("asr.transcribe_empty")
+            return None
+
+        matched_echo = self._match_recent_tts_echo(text)
+        if matched_echo is not None:
+            utterance, similarity = matched_echo
+            print("[Echo] ignored probable self-playback.")
+            self._logger.info(
+                "asr.self_echo_ignored",
+                transcript=text,
+                matched_tts=utterance.text,
+                similarity=round(similarity, 3),
+            )
+            return None
+
         if self._is_low_confidence_transcription(transcription):
             self._logger.warning(
                 "asr.low_confidence_detected",
@@ -878,14 +974,6 @@ class RunVoiceTurnUseCase:
             )
             print("[ASR] low confidence detected, asking user to repeat.")
             self.speak_feedback(self._asr_low_confidence_message)
-            return None
-
-        text = transcription.text
-
-        print("Detected text:", repr(text))
-        if not text:
-            print("Didn't catch anything.")
-            self._logger.info("asr.transcribe_empty")
             return None
 
         return text
@@ -940,7 +1028,7 @@ class RunVoiceTurnUseCase:
         tts_started_at = time.perf_counter()
         try:
             self._tts.speak(spoken_response)
-            self._last_tts_completed_at = time.monotonic()
+            self._remember_tts_output(spoken_response)
             tts_duration_ms = round((time.perf_counter() - tts_started_at) * 1000, 2)
             self._logger.info(
                 "tts.speak_completed",

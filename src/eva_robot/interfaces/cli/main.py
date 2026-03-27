@@ -153,6 +153,9 @@ def main() -> None:
             config.asr_second_pass_min_language_probability
         ),
         asr_second_pass_disable_vad=config.asr_second_pass_disable_vad,
+        echo_filter_window_seconds=config.echo_filter_window_seconds,
+        echo_filter_min_similarity=config.echo_filter_min_similarity,
+        echo_filter_min_chars=config.echo_filter_min_chars,
         logger=logger,
     )
     runtime = VoiceRuntime(

@@ -34,6 +34,17 @@ class DummyAsr:
 
 
 @dataclass
+class DetailedAsr:
+    transcription: AsrTranscription
+
+    def transcribe(self, audio):
+        return self.transcription.text
+
+    def transcribe_with_details(self, audio):
+        return self.transcription
+
+
+@dataclass
 class AudioRecorderOnce:
     audio: np.ndarray
 
@@ -582,6 +593,32 @@ def test_microphone_calibrates_against_ambient_noise() -> None:
     )
 
 
+def test_listen_once_ignores_recent_tts_echo() -> None:
+    tts = DummyTts(spoken=[])
+    use_case = RunVoiceTurnUseCase(
+        recorder=AudioRecorderOnce(audio=np.array([0.1, 0.2], dtype=np.float32)),
+        asr=DetailedAsr(
+            transcription=AsrTranscription(
+                text="I'm here.",
+                avg_logprob=-0.1,
+                no_speech_prob=0.01,
+            )
+        ),
+        router=IntentRouter(),
+        llm=CapturingLlm(calls=[]),
+        tts=tts,
+        record_seconds=3,
+        echo_filter_window_seconds=3.0,
+        echo_filter_min_similarity=0.72,
+        echo_filter_min_chars=4,
+    )
+
+    use_case.speak_feedback("I'm here.")
+    text = use_case.listen_once()
+
+    assert_equal(text, None, "recent TTS playback should be ignored by ASR handoff")
+
+
 def main() -> int:
     test_intent_router()
     test_stateful_learning_mode()
@@ -598,6 +635,7 @@ def main() -> int:
     test_microphone_waits_for_real_speech()
     test_microphone_waits_before_speech_without_shortening_recording()
     test_microphone_calibrates_against_ambient_noise()
+    test_listen_once_ignores_recent_tts_echo()
     print("smoke_regression: ok")
     return 0
 

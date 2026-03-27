@@ -123,6 +123,9 @@ export ASR_LOW_CONFIDENCE_MESSAGE="抱歉，我没太听清，请再说一遍。
 export ASR_SECOND_PASS_LANGUAGE="en"
 export ASR_SECOND_PASS_MIN_LANGUAGE_PROBABILITY="0.65"
 export ASR_SECOND_PASS_DISABLE_VAD="true"
+export ECHO_FILTER_WINDOW_SECONDS="3.0"
+export ECHO_FILTER_MIN_SIMILARITY="0.72"
+export ECHO_FILTER_MIN_CHARS="12"
 export OLLAMA_URL="http://127.0.0.1:11434/api/generate"
 export OLLAMA_MODEL="qwen2.5:7b-instruct"
 export SAMPLE_RATE="16000"
@@ -173,6 +176,8 @@ stay locked onto a real utterance without clipping the ending.
 
 If Eva sometimes re-hears its own reply, try headphones first, then increase
 `FOLLOWUP_COOLDOWN_SECONDS` slightly, for example from `0.6` to `0.8`.
+If that is not enough, keep `ECHO_FILTER_WINDOW_SECONDS` enabled so Eva can
+ignore transcripts that closely match its own recent TTS output.
 
 Provider selection:
 

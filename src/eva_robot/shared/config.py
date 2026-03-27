@@ -106,6 +106,13 @@ class AppConfig:
         os.getenv("ASR_SECOND_PASS_MIN_LANGUAGE_PROBABILITY", "0.65")
     )
     asr_second_pass_disable_vad: bool = _env_bool("ASR_SECOND_PASS_DISABLE_VAD", True)
+    echo_filter_window_seconds: float = float(
+        os.getenv("ECHO_FILTER_WINDOW_SECONDS", "3.0")
+    )
+    echo_filter_min_similarity: float = float(
+        os.getenv("ECHO_FILTER_MIN_SIMILARITY", "0.72")
+    )
+    echo_filter_min_chars: int = int(os.getenv("ECHO_FILTER_MIN_CHARS", "12"))
     llm_provider: str = os.getenv("LLM_PROVIDER", "openai_compatible")
     llm_profile: str = os.getenv("LLM_PROFILE", "default")
     llm_base_url: str = os.getenv("LLM_BASE_URL", "https://gmncode.cn")
