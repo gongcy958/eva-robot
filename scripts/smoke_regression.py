@@ -19,6 +19,10 @@ from src.eva_robot.interfaces.voice import microphone as microphone_module
 from src.eva_robot.interfaces.voice import runtime as runtime_module
 from src.eva_robot.interfaces.voice.microphone import MicrophoneRecorder
 from src.eva_robot.interfaces.voice.runtime import VoiceRuntime
+from src.eva_robot.shared.audio_tuning import (
+    format_recommended_env,
+    recommend_voice_frontend_config,
+)
 from src.eva_robot.shared.config import AppConfig
 from src.eva_robot.shared.preflight import PreflightFinding, StartupPreflight
 
@@ -652,6 +656,30 @@ def test_low_confidence_confirmation_can_resume_original_request() -> None:
     )
 
 
+def test_audio_tuning_recommendation_matches_noisy_room_profile() -> None:
+    recommendation = recommend_voice_frontend_config(
+        ambient_levels=[0.012, 0.014, 0.013, 0.018, 0.016, 0.038, 0.041, 0.015],
+        speech_levels=[0.06, 0.08, 0.075, 0.09, 0.07, 0.065, 0.085],
+    )
+    env_values = format_recommended_env(recommendation)
+
+    assert_equal(
+        env_values["AMBIENT_NOISE_SECONDS"],
+        "0.6",
+        "bursty ambient noise should use a longer calibration window",
+    )
+    assert_equal(
+        env_values["SPEECH_START_CHUNKS"],
+        "4",
+        "noisy rooms should ask for more consistent speech onset before starting",
+    )
+    assert_equal(
+        env_values["FOLLOWUP_COOLDOWN_SECONDS"],
+        "0.8",
+        "noisy rooms should slow follow-up listening slightly to avoid self-retriggering",
+    )
+
+
 def main() -> int:
     test_intent_router()
     test_stateful_learning_mode()
@@ -670,6 +698,7 @@ def main() -> int:
     test_microphone_calibrates_against_ambient_noise()
     test_listen_once_ignores_recent_tts_echo()
     test_low_confidence_confirmation_can_resume_original_request()
+    test_audio_tuning_recommendation_matches_noisy_room_profile()
     print("smoke_regression: ok")
     return 0
 

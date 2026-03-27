@@ -260,6 +260,26 @@ follow-up behavior, run:
 python3 scripts/smoke_regression.py
 ```
 
+For microphone tuning on your own machine, run:
+
+```bash
+python3 scripts/calibrate_voice_frontend.py
+```
+
+This captures a few seconds of room noise plus a short spoken sample, then
+prints recommended values for:
+
+- `SILENCE_THRESHOLD`
+- `AMBIENT_NOISE_SECONDS`
+- `SPEECH_START_THRESHOLD_MULTIPLIER`
+- `SPEECH_END_THRESHOLD_MULTIPLIER`
+- `SPEECH_START_CHUNKS`
+- `PREROLL_DURATION_SECONDS`
+- `FOLLOWUP_COOLDOWN_SECONDS`
+
+If the recommendations sound right, rerun with `--write-env` to update
+`.env.local` directly.
+
 ## Configuration
 
 A future `.env`-based setup is recommended for runtime configuration, such as:
